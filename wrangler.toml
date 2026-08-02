@@ -1,0 +1,18 @@
+name = "minx-chatroom"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Durable Object binding
+[[durable_objects.bindings]]
+name = "CHATROOM"
+class_name = "Chatroom"
+
+# KV namespace for room metadata (optional — keeps usernames/room info)
+[[kv_namespaces]]
+binding = "ROOM_KV"
+id = "3577df65fad44be298a0ff97dc567b5b"
+
+# Migration for the DO
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Chatroom"]

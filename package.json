@@ -1,0 +1,11 @@
+{
+	"name": "minx-chatroom",
+	"version": "1.0.0",
+	"description": "A cozy single-room chatroom powered by Cloudflare Workers + Durable Objects",
+	"main": "src/index.js",
+	"scripts": {
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy"
+	},
+	"dependencies": {}
+}
