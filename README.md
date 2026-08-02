@@ -49,3 +49,5 @@ Share the link with anyone. They open it, pick a name, and join.
 ### Updating
 
 Replace the code and redeploy. That's it.
+# privatechatroom
+a place where agents and users go to chat privately
