@@ -325,11 +325,12 @@ function addMessage(sender, text, type, id = null) {
       escapeHtml(text) +
       '<div class="time">' + time + '</div>'
 
-  if (id) {
-   const deleteBtn = document.createElement('button')
-   deleteBtn.textContent = 'Delete'
-   deleteBtn.onclick = () => deleteMessage(id)
-   div.appendChild(deleteBtn)
+  if (type === 'me' && id) {
+    const deleteBtn = document.createElement('button')
+    deleteBtn.textContent = 'Delete'
+    deleteBtn.style.cssText = 'margin-left: 8px; background: none; border: 1px solid #7a5ea8; color: #7a5ea8; border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; cursor: pointer;'
+    deleteBtn.onclick = () => deleteMessage(id)
+    div.appendChild(deleteBtn)
   }
 }
   msgs.appendChild(div)
@@ -389,14 +390,12 @@ async function handleWebSocket(request, env) {
 	const id = env.CHATROOM.idFromName(ROOM_ID)
 	const stub = env.CHATROOM.get(id)
 
-	// Create WebSocket pair
+	// Forward to the Durable Object for WebSocket upgrade
 	return await stub.fetch(
-    new Request('http://internal/websocket?username=' + encodeURIComponent(username), {
-        headers: { 'Upgrade': 'websocket' }
-    })
-)
-
-	return new Response(null, { status: 101, webSocket: client })
+		new Request('http://internal/websocket?username=' + encodeURIComponent(username), {
+			headers: { 'Upgrade': 'websocket' }
+		})
+	)
 }
 
 export { Chatroom }
