@@ -15,4 +15,4 @@ id = "3577df65fad44be298a0ff97dc567b5b"
 # Migration for the DO
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["Chatroom"]
+new_classes = ["Chatroom"]

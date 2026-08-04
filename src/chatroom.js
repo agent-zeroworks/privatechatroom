@@ -11,8 +11,11 @@ export class Chatroom {
 		this.env = env
 
 		// Derive the room code from the DO's name (idFromName('room-' + code))
-		const idStr = state.id ? state.id.toString() : ''
-		this.roomCode = idStr.replace(/^room-/, '')
+		// state.id.name is the documented way to get the name back; fall back
+		// to toString() only if name is unavailable.
+		const idObj = state.id
+		const idName = idObj && idObj.name ? idObj.name : (idObj ? String(idObj) : '')
+		this.roomCode = idName.replace(/^room-/, '')
 		this.isPublic = this.roomCode === PUBLIC_ROOM
 
 		// Connected WebSocket sessions: Map<webSocket, { username: string }>
