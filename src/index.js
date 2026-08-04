@@ -1,22 +1,28 @@
 // Minx's Chatroom — Cloudflare Worker
-// Single-room chat with real-time messaging via Durable Objects
+// Private rooms: every room is a Durable Object keyed by its 8-char code.
+// Rooms stay open until every party closes them.
 
 import { Chatroom } from './chatroom.js'
 
-// The single room ID — one room, always the same
-const ROOM_ID = 'minx-main-room'
+// Clean alphabet — no 0/O/1/I lookalikes
+const CODE_RE = /^[A-HJ-NP-Z2-9]{8}$/
 
 export default {
 	async fetch(request, env) {
 		const url = new URL(request.url)
 		const path = url.pathname
 
-		// Serve the frontend
+		// Serve the frontend (landing or room page, decided client-side)
 		if (path === '/' || path === '/index.html') {
 			return serveFrontend()
 		}
 
-		// WebSocket connection to the chatroom
+		// Room page: /room/<code>
+		if (/^\/room\/[A-HJ-NP-Z2-9]{8}$/.test(path)) {
+			return serveFrontend()
+		}
+
+		// WebSocket connection to a room
 		if (path === '/chat') {
 			return handleWebSocket(request, env)
 		}
@@ -184,12 +190,94 @@ async function serveFrontend() {
     font-size: 0.8rem;
     color: #888;
   }
+
+  #landing-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 14px;
+    padding: 20px;
+    text-align: center;
+  }
+  #landing-screen h1 { font-size: 2rem; color: #c4a0ff; }
+  #landing-screen p { color: #888; max-width: 380px; line-height: 1.5; }
+  #landing-screen .or { color: #666; font-size: 0.85rem; }
+  #landing-screen .row { display: flex; gap: 8px; align-items: center; }
+  #landing-screen input {
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #16213e;
+    color: #e0e0e0;
+    font-size: 1rem;
+    width: 200px;
+    outline: none;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  #landing-screen input:focus { border-color: #c4a0ff; }
+  #landing-screen button {
+    padding: 12px 32px;
+    border-radius: 8px;
+    border: none;
+    background: #c4a0ff;
+    color: #1a1a2e;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  #landing-screen button:hover { background: #b388ff; }
+  #room-code-pill {
+    background: #16213e;
+    border: 1px solid #333;
+    padding: 8px 14px;
+    border-radius: 20px;
+    color: #888;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #room-code-pill b { color: #c4a0ff; letter-spacing: 3px; font-size: 1.05rem; }
+  #room-code-pill button {
+    background: none;
+    border: 1px solid #7a5ea8;
+    color: #c4a0ff;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  #room-code-pill button:hover { background: #7a5ea8; color: #1a1a2e; }
+  #header button {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    background: none;
+    border: 1px solid #7a5ea8;
+    color: #c4a0ff;
+  }
+  #header button:hover { background: #b71c1c; border-color: #b71c1c; color: #fff; }
 </style>
 </head>
 <body>
+<div id="landing-screen">
+  <h1>🐱 private rooms</h1>
+  <p>tap a button, get a code, send it to someone. your room, your walls — nobody else in.</p>
+  <button id="create-btn" onclick="createRoom()">create a room</button>
+  <div class="or">— or —</div>
+  <div class="row">
+    <input id="code-input" type="text" placeholder="enter a code" maxlength="8" autocomplete="off">
+    <button id="join-code-btn" onclick="joinByCode()">join</button>
+  </div>
+</div>
+
 <div id="join-screen">
-  <h1>🐱 Minx's Chatroom</h1>
-  <p>a cozy corner of the internet — say hi, share something, or just vibe</p>
+  <h1>🐱 private room</h1>
+  <div id="room-code-pill">code <b id="room-code-display"></b><button id="copy-btn" onclick="copyLink()">copy link</button></div>
+  <p>send the code or link to whoever you trust. this room is just for you two.</p>
   <input id="username-input" type="text" placeholder="your name..." maxlength="24" autocomplete="off">
   <button id="join-btn" onclick="joinChat()">Join</button>
 </div>
@@ -197,10 +285,13 @@ async function serveFrontend() {
 <div id="chat-screen">
   <div id="header">
     <div>
-      <h2>🐱 Minx's Chatroom</h2>
+      <h2>🐱 room <span id="room-code-header"></span></h2>
       <span id="online-count">0 online</span>
     </div>
-    <div id="status" class="disconnected">disconnected</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button id="leave-btn" onclick="leaveRoom()">close room</button>
+      <div id="status" class="disconnected">disconnected</div>
+    </div>
   </div>
   <div id="messages"></div>
   <div id="input-area">
@@ -212,7 +303,59 @@ async function serveFrontend() {
 <script>
 let ws = null
 let username = ''
+let roomCode = ''
 let reconnectTimer = null
+let leaving = false
+
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+function generateCode() {
+  const bytes = new Uint8Array(8)
+  crypto.getRandomValues(bytes)
+  let code = ''
+  for (let i = 0; i < 8; i++) {
+    code += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length]
+  }
+  return code
+}
+
+function createRoom() {
+  location.href = '/room/' + generateCode()
+}
+
+function joinByCode() {
+  const input = document.getElementById('code-input')
+  const code = input.value.trim().toUpperCase()
+  if (!/^[A-HJ-NP-Z2-9]{8}$/.test(code)) {
+    input.style.borderColor = '#b71c1c'
+    return
+  }
+  input.style.borderColor = ''
+  location.href = '/room/' + code
+}
+
+function copyLink() {
+  const btn = document.getElementById('copy-btn')
+  const done = () => {
+    btn.textContent = 'copied!'
+    setTimeout(() => { btn.textContent = 'copy link' }, 1500)
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(location.href).then(done, done)
+  } else {
+    done()
+  }
+}
+
+// On /room/<code>, skip the landing and show this room's join screen
+const roomMatch = location.pathname.match(/^\/room\/([A-HJ-NP-Z2-9]{8})$/) 
+if (roomMatch) {
+  roomCode = roomMatch[1]
+  document.getElementById('landing-screen').style.display = 'none'
+  document.getElementById('room-code-display').textContent = roomCode
+  document.getElementById('room-code-header').textContent = roomCode
+  document.title = 'room ' + roomCode + ' 🐱'
+}
 
 function joinChat() {
   const input = document.getElementById('username-input')
@@ -227,7 +370,7 @@ function joinChat() {
 function connect() {
   setStatus('connecting', 'connecting...')
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = protocol + '//' + location.host + '/chat?username=' + encodeURIComponent(username)
+  const wsUrl = protocol + '//' + location.host + '/chat?room=' + roomCode + '&username=' + encodeURIComponent(username)
   ws = new WebSocket(wsUrl)
 
   ws.onopen = () => {
@@ -241,6 +384,7 @@ function connect() {
     setStatus('disconnected', 'disconnected')
     document.getElementById('msg-input').disabled = true
     document.getElementById('send-btn').disabled = true
+    if (leaving) return
     // Auto-reconnect after 3 seconds
     reconnectTimer = setTimeout(() => connect(), 3000)
   }
@@ -355,6 +499,16 @@ function deleteMessage(id) {
 	}))
 }
 
+function leaveRoom() {
+  leaving = true
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'close' }))
+  }
+  ws = null
+  clearTimeout(reconnectTimer)
+  location.href = '/'
+}
+
 function setStatus(state, label) {
   const el = document.getElementById('status')
   el.className = state
@@ -385,14 +539,19 @@ document.getElementById('msg-input').addEventListener('keydown', (e) => {
 async function handleWebSocket(request, env) {
 	const url = new URL(request.url)
 	const username = url.searchParams.get('username') || 'Anonymous'
+	const room = (url.searchParams.get('room') || '').toUpperCase()
 
-	// Get the Durable Object stub for our single room
-	const id = env.CHATROOM.idFromName(ROOM_ID)
+	// Every room is a Durable Object keyed by its code
+	if (!CODE_RE.test(room)) {
+		return new Response('Bad room code', { status: 400 })
+	}
+
+	const id = env.CHATROOM.idFromName('room-' + room)
 	const stub = env.CHATROOM.get(id)
 
 	// Forward to the Durable Object for WebSocket upgrade
 	return await stub.fetch(
-		new Request('http://internal/websocket?username=' + encodeURIComponent(username), {
+		new Request('http://internal/websocket?room=' + encodeURIComponent(room) + '&username=' + encodeURIComponent(username), {
 			headers: { 'Upgrade': 'websocket' }
 		})
 	)

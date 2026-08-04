@@ -7,8 +7,12 @@ export class Chatroom {
 		this.env = env
 		// Connected WebSocket sessions: Map<webSocket, { username: string }>
 		this.sessions = new Map()
-		// Message history (in-memory — resets if DO hibernates; keep last 100)
+		// Users who explicitly closed the room
+		this.closedBy = new Set()
+		// Message history (persisted to storage; keep last 100)
 		this.messages = []
+		this.loaded = false
+		this.destroyed = false
 	}
 
 	// Handler for incoming requests to the DO
@@ -25,6 +29,12 @@ export class Chatroom {
 
 			// Accept the WebSocket
 			server.accept()
+
+			// Load persisted history once (DOs hibernate between requests)
+			if (!this.loaded) {
+				this.messages = (await this.state.storage.get('messages')) || []
+				this.loaded = true
+			}
 
 			// Store the session
 			this.sessions.set(server, { username })
@@ -54,12 +64,13 @@ export class Chatroom {
 							text: data.text.trim()
 						}
 
-						// Store in history
+						// Store in history (persisted so it survives hibernation)
 						this.messages.push(msg)
 
 						if (this.messages.length > 100) {
 							this.messages.shift()
 						}
+						await this.state.storage.put('messages', this.messages)
 						// Broadcast to all
 						this.broadcast(msg)
 					}
@@ -74,20 +85,37 @@ export class Chatroom {
 								msg => msg.id !== data.id
 							)
 
+							await this.state.storage.put('messages', this.messages)
+
 							this.broadcast({
 								type: 'delete',
 								id: data.id
 							})
 						}
 					}
+
+					if (data.type === 'close') {
+						// User closed the room on their side
+						this.sessions.delete(server)
+						this.closedBy.add(username)
+						this.broadcastSystem(username + ' closed the room')
+						this.broadcastOnlineCount()
+						server.close()
+						await this.maybeDestroy()
+					}
 				} catch (e) {
 					// Ignore bad messages
 				}
 			})
 
-			// Handle disconnect
+			// Handle disconnect (explicit close fires this too)
 			server.addEventListener('close', () => {
 				this.sessions.delete(server)
+				if (this.closedBy.has(username)) {
+					// Already announced the explicit close
+					this.maybeDestroy()
+					return
+				}
 				this.broadcastSystem(username + ' left')
 				this.broadcastOnlineCount()
 			})
@@ -96,6 +124,17 @@ export class Chatroom {
 		}
 
 		return new Response('Not found', { status: 404 })
+	}
+
+	// If everyone has closed the room, erase it — the code goes dead
+	async maybeDestroy() {
+		if (this.destroyed) return
+		if (this.sessions.size > 0) return
+		if (this.closedBy.size === 0) return
+
+		this.destroyed = true
+		await this.state.storage.deleteAll()
+		this.messages = []
 	}
 
 	// Broadcast a message to all connected sessions
