@@ -1,13 +1,23 @@
 // Minx's Chatroom — Durable Object
-// Manages real-time room state: messages, connected users, broadcast
+// Manages real-time room state: messages, connected users, broadcast.
+// The public room (PUBLIC_ROOM) never dies and keeps its history.
+// Private rooms die when every party has explicitly closed them.
+
+import { PUBLIC_ROOM } from './config.js'
 
 export class Chatroom {
 	constructor(state, env) {
 		this.state = state
 		this.env = env
+
+		// Derive the room code from the DO's name (idFromName('room-' + code))
+		const idStr = state.id ? state.id.toString() : ''
+		this.roomCode = idStr.replace(/^room-/, '')
+		this.isPublic = this.roomCode === PUBLIC_ROOM
+
 		// Connected WebSocket sessions: Map<webSocket, { username: string }>
 		this.sessions = new Map()
-		// Users who explicitly closed the room
+		// Sockets that explicitly closed the room (private rooms only)
 		this.closedBy = new Set()
 		// Message history (persisted to storage; keep last 100)
 		this.messages = []
@@ -29,6 +39,10 @@ export class Chatroom {
 
 			// Accept the WebSocket
 			server.accept()
+
+			// A new connection resurrects the room — a code can be used again
+			// after everyone closed it, and it must be destroyable again too.
+			this.destroyed = false
 
 			// Load persisted history once (DOs hibernate between requests)
 			if (!this.loaded) {
@@ -77,7 +91,7 @@ export class Chatroom {
 
 					if (data.type === 'delete' && data.id) {
 						const message = this.messages.find(
-						msg => msg.id === data.id
+							msg => msg.id === data.id
 						)
 
 						if (message && message.sender === username) {
@@ -97,8 +111,13 @@ export class Chatroom {
 					if (data.type === 'close') {
 						// User closed the room on their side
 						this.sessions.delete(server)
-						this.closedBy.add(username)
-						this.broadcastSystem(username + ' closed the room')
+						if (this.isPublic) {
+							// Public room: closing is just leaving — the room lives on
+							this.broadcastSystem(username + ' left')
+						} else {
+							this.closedBy.add(server)
+							this.broadcastSystem(username + ' closed the room')
+						}
 						this.broadcastOnlineCount()
 						server.close()
 						await this.maybeDestroy()
@@ -111,8 +130,8 @@ export class Chatroom {
 			// Handle disconnect (explicit close fires this too)
 			server.addEventListener('close', () => {
 				this.sessions.delete(server)
-				if (this.closedBy.has(username)) {
-					// Already announced the explicit close
+				if (this.closedBy.has(server)) {
+					this.closedBy.delete(server)
 					this.maybeDestroy()
 					return
 				}
@@ -126,9 +145,11 @@ export class Chatroom {
 		return new Response('Not found', { status: 404 })
 	}
 
-	// If everyone has closed the room, erase it — the code goes dead
+	// If everyone has closed the room, erase it — the code goes dead.
+	// The public room is exempt: it is the house, it never goes away.
 	async maybeDestroy() {
 		if (this.destroyed) return
+		if (this.isPublic) return
 		if (this.sessions.size > 0) return
 		if (this.closedBy.size === 0) return
 
