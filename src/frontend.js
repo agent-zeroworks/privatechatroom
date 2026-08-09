@@ -14,13 +14,13 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Minx's Chatroom 🐱</title>
+<title>Chatroom</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #1a1a2e;
-    color: #e0e0e0;
+    background: #f6f6f4;
+    color: #333;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -32,53 +32,50 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     align-items: center;
     justify-content: center;
     height: 100vh;
-    gap: 14px;
+    gap: 12px;
     padding: 20px;
     text-align: center;
   }
   .screen.on { display: flex; }
 
-  .screen h1 { font-size: 1.9rem; color: #c4a0ff; }
-  .screen p { color: #888; max-width: 380px; line-height: 1.5; }
-  .screen .or { color: #666; font-size: 0.85rem; }
+  .screen h1 { font-size: 1.5rem; font-weight: 600; color: #333; }
+  .screen p { color: #777; max-width: 380px; line-height: 1.5; font-size: 0.9rem; }
+  .screen .or { color: #999; font-size: 0.85rem; }
 
   .screen input {
-    padding: 12px 16px;
-    border-radius: 8px;
-    border: 1px solid #333;
-    background: #16213e;
-    color: #e0e0e0;
-    font-size: 1rem;
+    padding: 10px 12px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #fff;
+    color: #333;
+    font-size: 0.95rem;
     width: 260px;
     outline: none;
   }
-  .screen input:focus { border-color: #c4a0ff; }
+  .screen input:focus { border-color: #4a6fa5; }
   .screen input.code-input {
     width: 200px;
     text-transform: uppercase;
-    letter-spacing: 2px;
+    letter-spacing: 1px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 
   .screen button {
-    padding: 12px 32px;
-    border-radius: 8px;
-    border: none;
-    background: #c4a0ff;
-    color: #1a1a2e;
-    font-size: 1rem;
-    font-weight: 600;
+    padding: 10px 24px;
+    border-radius: 4px;
+    border: 1px solid #4a6fa5;
+    background: #4a6fa5;
+    color: #fff;
+    font-size: 0.95rem;
     cursor: pointer;
-    transition: background 0.2s;
   }
-  .screen button:hover { background: #b388ff; }
+  .screen button:hover { background: #3f5f8f; }
   .screen button:disabled { opacity: 0.5; cursor: not-allowed; }
   .screen button.ghost {
-    background: none;
-    border: 1px solid #7a5ea8;
-    color: #c4a0ff;
-    font-weight: 500;
+    background: #fff;
+    color: #4a6fa5;
   }
-  .screen button.ghost:hover { background: #7a5ea8; color: #1a1a2e; }
+  .screen button.ghost:hover { background: #eef2f7; }
 
   .row { display: flex; gap: 8px; align-items: center; }
 
@@ -86,209 +83,213 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     margin-top: 8px;
     background: none;
     border: none;
-    color: #7a5ea8;
+    padding: 0;
+    color: #4a6fa5;
     font-size: 0.85rem;
     cursor: pointer;
     text-decoration: underline;
   }
-  .foot-link:hover { color: #c4a0ff; }
+  .foot-link:hover { color: #3f5f8f; }
 
   .error {
-    color: #ef9a9a;
+    color: #b3261e;
     font-size: 0.8rem;
     min-height: 1.1em;
   }
 
-  #room-code-pill {
-    background: #16213e;
-    border: 1px solid #333;
-    padding: 8px 14px;
-    border-radius: 20px;
-    color: #888;
+  #room-code-box {
+    background: #fff;
+    border: 1px solid #ccc;
+    padding: 6px 12px;
+    border-radius: 4px;
+    color: #777;
     font-size: 0.9rem;
     display: flex;
     align-items: center;
     gap: 10px;
   }
-  #room-code-pill b { color: #c4a0ff; letter-spacing: 3px; font-size: 1.05rem; }
-  #room-code-pill button {
-    background: none;
-    border: 1px solid #7a5ea8;
-    color: #c4a0ff;
-    padding: 4px 10px;
+  #room-code-box b {
+    color: #333;
+    letter-spacing: 2px;
+    font-size: 1rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  #room-code-box button {
+    background: #fff;
+    border: 1px solid #ccc;
+    color: #4a6fa5;
+    padding: 3px 10px;
     font-size: 0.75rem;
-    border-radius: 12px;
+    border-radius: 3px;
     cursor: pointer;
   }
-  #room-code-pill button:hover { background: #7a5ea8; color: #1a1a2e; }
+  #room-code-box button:hover { background: #eef2f7; }
 
   #chat-screen { display: none; flex-direction: column; height: 100vh; }
   #chat-screen.on { display: flex; }
 
   #header {
-    padding: 14px 20px;
-    background: #16213e;
-    border-bottom: 1px solid #333;
+    padding: 10px 16px;
+    background: #fff;
+    border-bottom: 1px solid #ddd;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
   }
-  #header h2 { font-size: 1.05rem; color: #c4a0ff; }
-  #header span { font-size: 0.8rem; color: #888; }
+  #header h2 { font-size: 1rem; font-weight: 600; color: #333; }
+  #header span { font-size: 0.8rem; color: #777; }
   #header .head-actions { display: flex; gap: 8px; align-items: center; }
   #header button {
-    padding: 8px 14px;
+    padding: 6px 12px;
     font-size: 0.8rem;
-    background: none;
-    border: 1px solid #7a5ea8;
-    color: #c4a0ff;
-    border-radius: 8px;
+    background: #fff;
+    border: 1px solid #ccc;
+    color: #555;
+    border-radius: 4px;
     cursor: pointer;
   }
-  #header button:hover { background: #b71c1c; border-color: #b71c1c; color: #fff; }
-  #header button.leave:hover { background: #1b5e20; border-color: #1b5e20; color: #81c784; }
+  #header button:hover { background: #f0f0f0; }
+  #header button.leave:hover { background: #fdecea; border-color: #d32f2f; color: #d32f2f; }
+  #header button.close:hover { background: #fdecea; border-color: #d32f2f; color: #d32f2f; }
 
-  #status { font-size: 0.8rem; padding: 4px 10px; border-radius: 12px; }
-  #status.connected { background: #1b5e20; color: #81c784; }
-  #status.disconnected { background: #b71c1c; color: #ef9a9a; }
-  #status.connecting { background: #e65100; color: #ffcc80; }
+  #status { font-size: 0.8rem; padding: 3px 10px; border-radius: 3px; border: 1px solid #ccc; }
+  #status.connected { color: #2e7d32; border-color: #a5d6a7; background: #e8f5e9; }
+  #status.disconnected { color: #c62828; border-color: #ef9a9a; background: #fdecea; }
+  #status.connecting { color: #b26a00; border-color: #ffcc80; background: #fff3e0; }
 
   #messages {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
   .msg {
-    padding: 10px 14px;
-    border-radius: 12px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    border: 1px solid #e0e0e0;
+    background: #fff;
     max-width: 75%;
     word-wrap: break-word;
     line-height: 1.4;
-    font-size: 0.95rem;
+    font-size: 0.92rem;
   }
-  .msg .name { font-weight: 600; font-size: 0.8rem; margin-bottom: 2px; }
-  .msg .time { font-size: 0.7rem; color: #666; margin-top: 4px; }
+  .msg .name { font-weight: 600; font-size: 0.78rem; margin-bottom: 2px; color: #555; }
+  .msg .time { font-size: 0.7rem; color: #999; margin-top: 4px; }
   .msg.me {
     align-self: flex-end;
-    background: #c4a0ff;
-    color: #1a1a2e;
-    border-bottom-right-radius: 4px;
+    background: #eaf1f8;
+    border-color: #bcd0e4;
   }
-  .msg.me .time { color: #7a5ea8; }
-  .msg.other {
-    align-self: flex-start;
-    background: #16213e;
-    border-bottom-left-radius: 4px;
-  }
+  .msg.me .time { color: #7a93ad; }
+  .msg.other { align-self: flex-start; }
   .msg.system {
     align-self: center;
     background: transparent;
-    color: #666;
+    border: none;
+    color: #999;
     font-size: 0.8rem;
-    font-style: italic;
   }
   .msg .del {
     margin-left: 8px;
     background: none;
-    border: 1px solid #7a5ea8;
-    color: #7a5ea8;
-    border-radius: 4px;
+    border: 1px solid #ccc;
+    color: #888;
+    border-radius: 3px;
     padding: 2px 8px;
     font-size: 0.7rem;
     cursor: pointer;
   }
-  .msg .del:hover { background: #b71c1c; border-color: #b71c1c; color: #fff; }
+  .msg .del:hover { background: #fdecea; border-color: #d32f2f; color: #d32f2f; }
 
   #input-area {
     display: flex;
     gap: 8px;
-    padding: 14px 20px;
-    background: #16213e;
-    border-top: 1px solid #333;
+    padding: 10px 16px;
+    background: #fff;
+    border-top: 1px solid #ddd;
   }
   #input-area input {
     flex: 1;
-    padding: 12px 16px;
-    border-radius: 8px;
-    border: 1px solid #333;
-    background: #1a1a2e;
-    color: #e0e0e0;
+    padding: 10px 12px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #fff;
+    color: #333;
     font-size: 0.95rem;
     outline: none;
   }
-  #input-area input:focus { border-color: #c4a0ff; }
+  #input-area input:focus { border-color: #4a6fa5; }
   #input-area button {
-    padding: 12px 20px;
-    border-radius: 8px;
-    border: none;
-    background: #c4a0ff;
-    color: #1a1a2e;
-    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 4px;
+    border: 1px solid #4a6fa5;
+    background: #4a6fa5;
+    color: #fff;
+    font-weight: 500;
     cursor: pointer;
   }
-  #input-area button:hover { background: #b388ff; }
+  #input-area button:hover { background: #3f5f8f; }
   #input-area button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  #online-count { font-size: 0.8rem; color: #888; }
+  #online-count { font-size: 0.8rem; color: #777; }
 </style>
 </head>
 <body>
 
-<!-- PUBLIC ROOM — the main focus. Everyone lands here. -->
+<!-- PUBLIC ROOM — everyone lands here. -->
 <div id="public-join" class="screen">
-  <h1>🐱 public room</h1>
-  <p>no code needed. walk in, say hi — this is the room everyone lands in.</p>
-  <input id="public-name" type="text" placeholder="your name..." maxlength="24" autocomplete="off">
-  <button id="public-join-btn">join the room</button>
-  <button class="foot-link" id="go-private">want a private room? create one or enter a code →</button>
+  <h1>Public room</h1>
+  <p>Everyone lands here. No code needed.</p>
+  <input id="public-name" type="text" placeholder="Your name" maxlength="24" autocomplete="off">
+  <button id="public-join-btn">Join</button>
+  <button class="foot-link" id="go-private">Private rooms</button>
 </div>
 
-<!-- PRIVATE ROOMS — tucked to the side. -->
+<!-- PRIVATE ROOMS -->
 <div id="private-landing" class="screen">
-  <h1>🔒 private rooms</h1>
-  <p>your room, your walls. get a code, share it, nobody else gets in.</p>
-  <button id="create-btn">create a private room</button>
-  <div class="or">— or —</div>
+  <h1>Private rooms</h1>
+  <p>Create a room and share the code. Only people with the code can join.</p>
+  <button id="create-btn">Create a private room</button>
+  <div class="or">or</div>
   <div class="row">
-    <input id="code-input" class="code-input" type="text" placeholder="enter a code" maxlength="8" autocomplete="off">
-    <button id="join-code-btn">join</button>
+    <input id="code-input" class="code-input" type="text" placeholder="Enter a code" maxlength="8" autocomplete="off">
+    <button id="join-code-btn">Join</button>
   </div>
   <div class="error" id="code-error"></div>
-  <button class="foot-link" id="go-public">← back to the public room</button>
+  <button class="foot-link" id="go-public">Public room</button>
 </div>
 
 <!-- PRIVATE ROOM JOIN -->
 <div id="private-join" class="screen">
-  <h1>🔒 private room</h1>
-  <div id="room-code-pill">code <b id="room-code-display"></b><button id="copy-btn">copy link</button></div>
-  <p>send the code or link to whoever you trust. this room is just for you.</p>
-  <input id="private-name" type="text" placeholder="your name..." maxlength="24" autocomplete="off">
-  <button id="private-join-btn">join</button>
-  <button class="foot-link" id="go-private-landing">← to private rooms</button>
+  <h1>Private room</h1>
+  <div id="room-code-box">code <b id="room-code-display"></b><button id="copy-btn">Copy link</button></div>
+  <p>Send the code or link to whoever you trust. This room is just for you.</p>
+  <input id="private-name" type="text" placeholder="Your name" maxlength="24" autocomplete="off">
+  <button id="private-join-btn">Join</button>
+  <button class="foot-link" id="go-private-landing">Private rooms</button>
 </div>
 
 <!-- CHAT -->
 <div id="chat-screen">
   <div id="header">
     <div>
-      <h2 id="room-title">🐱 public room</h2>
+      <h2 id="room-title">Public room</h2>
       <span id="room-sub"></span>
     </div>
     <div class="head-actions">
       <span id="online-count">0 online</span>
-      <button id="copy-header-btn" style="display:none">copy link</button>
-      <button id="close-room-btn" style="display:none">close room</button>
-      <button id="leave-btn" class="leave" style="display:none">leave</button>
-      <div id="status" class="disconnected">disconnected</div>
+      <button id="copy-header-btn" style="display:none">Copy link</button>
+      <button id="close-room-btn" class="close" style="display:none">Close room</button>
+      <button id="leave-btn" class="leave" style="display:none">Leave</button>
+      <div id="status" class="disconnected">Disconnected</div>
     </div>
   </div>
   <div id="messages"></div>
   <div id="input-area">
-    <input id="msg-input" type="text" placeholder="type something..." maxlength="500" autocomplete="off" disabled>
+    <input id="msg-input" type="text" placeholder="Type a message" maxlength="500" autocomplete="off" disabled>
     <button id="send-btn" disabled>Send</button>
   </div>
 </div>
@@ -315,17 +316,17 @@ function route() {
     roomCode = parts[1]
     isPrivate = true
     document.getElementById('room-code-display').textContent = roomCode
-    document.title = 'room ' + roomCode + ' 🐱'
+    document.title = 'Room ' + roomCode
     show('private-join')
   } else if (location.pathname === '/private') {
     roomCode = ''
     isPrivate = false
-    document.title = 'private rooms 🐱'
+    document.title = 'Private rooms'
     show('private-landing')
   } else {
     roomCode = ''
     isPrivate = false
-    document.title = 'Minx\'s chatroom 🐱'
+    document.title = 'Chatroom'
     show('public-join')
   }
 }
@@ -358,7 +359,7 @@ function joinByCode() {
   const err = document.getElementById('code-error')
   const code = input.value.trim().toUpperCase()
   if (!CODE_RE.test(code)) {
-    err.textContent = 'codes are 8 characters — letters and numbers, no 0/O/1/I'
+    err.textContent = 'Codes are 8 characters: letters and numbers, no 0/O/1/I'
     input.focus()
     return
   }
@@ -393,8 +394,8 @@ function legacyCopy(text, done) {
 function copyLink() {
   const btn = document.getElementById('copy-btn')
   const done = function () {
-    btn.textContent = 'copied!'
-    setTimeout(function () { btn.textContent = 'copy link' }, 1500)
+    btn.textContent = 'Copied'
+    setTimeout(function () { btn.textContent = 'Copy link' }, 1500)
   }
   copyText(location.href, done)
 }
@@ -402,8 +403,8 @@ function copyLink() {
 function copyHeaderLink() {
   const btn = document.getElementById('copy-header-btn')
   const done = function () {
-    btn.textContent = 'copied!'
-    setTimeout(function () { btn.textContent = 'copy link' }, 1500)
+    btn.textContent = 'Copied'
+    setTimeout(function () { btn.textContent = 'Copy link' }, 1500)
   }
   copyText(location.href, done)
 }
@@ -428,9 +429,9 @@ function joinPrivate() {
 
 function enterChat() {
   document.getElementById('room-title').textContent =
-    isPrivate ? '🔒 room ' + roomCode : '🐱 public room'
+    isPrivate ? 'Room ' + roomCode : 'Public room'
   document.getElementById('room-sub').textContent =
-    isPrivate ? 'private — only people with the code get in' : 'everyone lands here · no code needed'
+    isPrivate ? 'Only people with the code can join' : 'Everyone lands here. No code needed.'
 
   document.getElementById('copy-header-btn').style.display = isPrivate ? '' : 'none'
   document.getElementById('close-room-btn').style.display = isPrivate ? '' : 'none'
@@ -443,21 +444,21 @@ function enterChat() {
 // ---------- websocket ----------
 
 function connect() {
-  setStatus('connecting', 'connecting...')
+  setStatus('connecting', 'Connecting...')
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const room = isPrivate ? roomCode : PUBLIC_ROOM
   const wsUrl = protocol + '//' + location.host + '/chat?room=' + room + '&username=' + encodeURIComponent(username)
   ws = new WebSocket(wsUrl)
 
   ws.onopen = function () {
-    setStatus('connected', 'connected')
+    setStatus('connected', 'Connected')
     document.getElementById('msg-input').disabled = false
     document.getElementById('send-btn').disabled = false
     document.getElementById('msg-input').focus()
   }
 
   ws.onclose = function () {
-    setStatus('disconnected', 'disconnected')
+    setStatus('disconnected', 'Disconnected')
     document.getElementById('msg-input').disabled = true
     document.getElementById('send-btn').disabled = true
     if (leaving) return
