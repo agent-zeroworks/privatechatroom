@@ -485,7 +485,7 @@ function handleMessage(data) {
       break
 
     case 'chat':
-      addMessage(data.sender, data.text, data.sender === username ? 'me' : 'other', data.id)
+      addMessage(data.sender, data.text, data.sender === username ? 'me' : 'other', data.id, data.ts)
       break
 
     case 'online_count':
@@ -494,7 +494,7 @@ function handleMessage(data) {
 
     case 'history':
       data.messages.forEach(function (m) {
-        addMessage(m.sender, m.text, m.sender === username ? 'me' : 'other', m.id)
+        addMessage(m.sender, m.text, m.sender === username ? 'me' : 'other', m.id, m.ts)
       })
       scrollToBottom()
       break
@@ -506,14 +506,14 @@ function handleMessage(data) {
   }
 }
 
-function addMessage(sender, text, type, id) {
+function addMessage(sender, text, type, id, ts) {
   const msgs = document.getElementById('messages')
   const div = document.createElement('div')
   div.className = 'msg ' + type
   if (type === 'system') {
     div.textContent = text
   } else {
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const time = new Date(ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     if (id) div.dataset.id = id
 
     const nameEl = document.createElement('div')

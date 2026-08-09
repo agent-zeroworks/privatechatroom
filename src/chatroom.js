@@ -1,9 +1,12 @@
 // Minx's Chatroom — Durable Object
 // Manages real-time room state: messages, connected users, broadcast.
-// The public room (PUBLIC_ROOM) never dies and keeps its history.
+// The public room (PUBLIC_ROOM) never dies; its history expires after 24h.
 // Private rooms die when every party has explicitly closed them.
 
 import { PUBLIC_ROOM } from './config.js'
+
+// Public rooms forget messages older than 24 hours.
+const HISTORY_TTL_MS = 24 * 60 * 60 * 1000
 
 export class Chatroom {
 	constructor(state, env) {
@@ -23,6 +26,7 @@ export class Chatroom {
 		// Sockets that explicitly closed the room (private rooms only)
 		this.closedBy = new Set()
 		// Message history (persisted to storage; keep last 100)
+		// Public room: also pruned to the last 24 hours.
 		this.messages = []
 		this.loaded = false
 		this.destroyed = false
@@ -53,6 +57,9 @@ export class Chatroom {
 				this.loaded = true
 			}
 
+			// Public room: forget anything older than 24 hours
+			await this.pruneExpired()
+
 			// Store the session
 			this.sessions.set(server, { username })
 
@@ -78,7 +85,8 @@ export class Chatroom {
 							type: 'chat',
 							id: crypto.randomUUID(),
 							sender: username,
-							text: data.text.trim()
+							text: data.text.trim(),
+							ts: Date.now()
 						}
 
 						// Store in history (persisted so it survives hibernation)
@@ -88,6 +96,8 @@ export class Chatroom {
 							this.messages.shift()
 						}
 						await this.state.storage.put('messages', this.messages)
+						// Public room: drop anything that just turned 24h old
+						await this.pruneExpired()
 						// Broadcast to all
 						this.broadcast(msg)
 					}
@@ -146,6 +156,21 @@ export class Chatroom {
 		}
 
 		return new Response('Not found', { status: 404 })
+	}
+
+	// Public rooms forget everything older than 24 hours. Old messages
+	// without a timestamp (pre-2026-08-09) count as expired.
+	async pruneExpired() {
+		if (!this.isPublic || this.messages.length === 0) return
+		const cutoff = Date.now() - HISTORY_TTL_MS
+		const kept = this.messages.filter(m => typeof m.ts === 'number' && m.ts >= cutoff)
+		if (kept.length === this.messages.length) return
+		this.messages = kept
+		if (kept.length === 0) {
+			await this.state.storage.delete('messages')
+		} else {
+			await this.state.storage.put('messages', kept)
+		}
 	}
 
 	// If everyone has closed the room, erase it — the code goes dead.
