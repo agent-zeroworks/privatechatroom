@@ -235,6 +235,60 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   #input-area button:disabled { opacity: 0.4; cursor: not-allowed; }
 
   #online-count { font-size: 0.8rem; color: #777; }
+
+  /* Heartline version badge — subtle, bottom-right, tap for history */
+  #version-box {
+    position: fixed;
+    right: 10px;
+    bottom: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.68rem;
+    color: #b3b3b3;
+    cursor: pointer;
+    user-select: none;
+    z-index: 50;
+  }
+  #version-box:hover { color: #777; }
+  #version-history {
+    position: absolute;
+    right: 0;
+    bottom: 20px;
+    background: #fff;
+    border: 1px solid #ddd;
+    padding: 8px 10px;
+    min-width: 230px;
+    text-align: left;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 0.75rem;
+    color: #555;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  #version-history[hidden] { display: none; }
+  #version-history h3 {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 4px;
+  }
+  #version-history .vrow { padding: 4px 0; border-bottom: 1px solid #f5f5f5; }
+  #version-history .vrow:last-child { border-bottom: none; }
+  #version-history .vrow b {
+    color: #333;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 600;
+    font-size: 0.7rem;
+  }
+  #version-history .vrow span {
+    display: block;
+    color: #888;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    margin-top: 1px;
+  }
 </style>
 </head>
 <body>
@@ -294,10 +348,26 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   </div>
 </div>
 
+<!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
+<div id="version-box">
+  <span id="version-label">v0.2.1-dev</span>
+  <div id="version-history" hidden></div>
+</div>
+
 <script>
 const PUBLIC_ROOM = 'CATCAFE8'
 const CODE_RE = /^[A-HJ-NP-Z2-9]{8}$/
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+// Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
+// Below v1.0.0 until the project is officially ready. Bump MINOR for new
+// features, PATCH for fixes/improvements. Tell the developer on every bump.
+const VERSION = 'v0.2.1-dev'
+const VERSION_HISTORY = [
+  { v: 'v0.2.1-dev', note: 'Version system: SemVer badge bottom-right, tap for history' },
+  { v: 'v0.2.0-dev', note: 'Private rooms with codes, 24h message expiry, bare-bones UI' },
+  { v: 'v0.1.0-dev', note: 'Initial prototype: public room chat' }
+]
 
 let ws = null
 let username = ''
@@ -613,6 +683,32 @@ document.getElementById('code-input').addEventListener('keydown', function (e) {
 })
 document.getElementById('code-input').addEventListener('input', function () {
   document.getElementById('code-error').textContent = ''
+})
+
+// ---------- version badge ----------
+
+const versionBox = document.getElementById('version-box')
+const versionHistory = document.getElementById('version-history')
+
+document.getElementById('version-label').textContent = VERSION
+VERSION_HISTORY.forEach(function (row) {
+  const div = document.createElement('div')
+  div.className = 'vrow'
+  const b = document.createElement('b')
+  b.textContent = row.v
+  const span = document.createElement('span')
+  span.textContent = row.note
+  div.appendChild(b)
+  div.appendChild(span)
+  versionHistory.appendChild(div)
+})
+
+versionBox.addEventListener('click', function (e) {
+  e.stopPropagation()
+  versionHistory.hidden = !versionHistory.hidden
+})
+document.addEventListener('click', function () {
+  versionHistory.hidden = true
 })
 
 route()
