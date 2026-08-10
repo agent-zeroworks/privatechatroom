@@ -159,11 +159,14 @@ export class Chatroom {
 					const data = JSON.parse(event.data)
 
 					if (data.type === 'chat' && data.text && data.text.trim()) {
+						// Read the role from the live session record so a
+						// mid-room tag flip (v0.8.3) shows on the next message.
+						const sess = this.sessions.get(server)
 						const msg = {
 							type: 'chat',
 							id: crypto.randomUUID(),
 							sender: username,
-							role: role,
+							role: sess ? sess.role : role,
 							text: data.text.trim(),
 							ts: Date.now()
 						}
@@ -179,6 +182,17 @@ export class Chatroom {
 						await this.pruneExpired()
 						// Broadcast to all
 						this.broadcast(msg)
+					}
+
+					// v0.8.3 — dev-only test tag: flip your display tag live.
+					// Honored only on the test build; prod ignores the message.
+					// 'agent' sets the tag, anything else restores the role the
+					// connection opened with (the account's real role).
+					if (data.type === 'tag' && this.env.APP_ENV === 'dev') {
+						const sess = this.sessions.get(server)
+						if (!sess) return
+						sess.role = data.tag === 'agent' ? 'agent' : role
+						server.send(JSON.stringify({ type: 'tag_ack', role: sess.role }))
 					}
 
 					if (data.type === 'delete' && data.id) {

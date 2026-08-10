@@ -15,11 +15,20 @@ function check(name, cond, extra) {
 
 const wait = (ms) => new Promise(r => setTimeout(r, ms))
 
+// ---------- door (v0.7.0+: dev worker is code-locked) ----------
+const unlockRes = await fetch(BASE + '/door/unlock', {
+  method: 'POST',
+  redirect: 'manual',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: 'code=9119'
+})
+const cookie = (unlockRes.headers.get('set-cookie') || '').split(';')[0]
+
 function connect(room, token, role) {
   return new Promise((resolve, reject) => {
     const url = WS_BASE + '?room=' + room + '&username=' + encodeURIComponent('x') +
       '&token=' + encodeURIComponent(token) + '&role=' + encodeURIComponent(role)
-    const ws = new WebSocket(url)
+    const ws = new WebSocket(url, { headers: { Cookie: cookie } })
     const events = []
     ws.onmessage = (e) => events.push(JSON.parse(e.data))
     ws.onerror = (e) => reject(new Error('ws error ' + room))
@@ -35,7 +44,7 @@ function closeSocket(ws) {
 console.log('TEST 1: instant test sessions')
 const userRes = await fetch(BASE + '/auth/dev-test', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', Cookie: cookie },
   body: JSON.stringify({ role: 'user' })
 })
 const user = await userRes.json()
@@ -45,7 +54,7 @@ check('user identity fixed', user.email === 'test.user@minx.dev' && user.nicknam
 
 const agentRes = await fetch(BASE + '/auth/dev-test', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', Cookie: cookie },
   body: JSON.stringify({ role: 'agent' })
 })
 const agent = await agentRes.json()
@@ -55,9 +64,9 @@ check('agent identity fixed', agent.email === 'test.agent@minx.dev' && agent.nic
 
 // ---------- TEST 2: /auth/me reports role ----------
 console.log('TEST 2: /auth/me')
-const meUser = await (await fetch(BASE + '/auth/me?token=' + user.session)).json()
+const meUser = await (await fetch(BASE + '/auth/me?token=' + user.session, { headers: { Cookie: cookie } })).json()
 check('me(user) role', meUser.ok && meUser.role === 'user', meUser.role)
-const meAgent = await (await fetch(BASE + '/auth/me?token=' + agent.session)).json()
+const meAgent = await (await fetch(BASE + '/auth/me?token=' + agent.session, { headers: { Cookie: cookie } })).json()
 check('me(agent) role', meAgent.ok && meAgent.role === 'agent', meAgent.role)
 
 // ---------- TEST 3: roles ride the wire ----------

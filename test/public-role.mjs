@@ -1,15 +1,20 @@
-// v0.8.2: test accounts on the public landing — one tap signs in and
-// joins the PUBLIC room with identity + role.
-// 1) Public room walk-in (no token): stays anonymous, role=user.
-// 2) Public room with a test-agent session: sender is 'Test Agent', role=agent.
-// 3) Public room with a test-user session: sender is 'Test User', role=user.
-// Also: the landing HTML shows the test box FIRST, before the public room title.
+// v0.8.3: test buttons are TAG-ONLY toggles now. Clicking Test Agent adds
+// the AGENT tag to whoever clicks it — no session, no identity change,
+// no redirect. The tag works in the public room AND private rooms.
+// 1) Public walk-in (no token, no tag): stays anonymous, role=user.
+// 2) Public walk-in WITH tag=agent: keeps their typed name, role=agent.
+// 3) Live flip: chat as user, send {type:'tag',tag:'agent'}, chat again ->
+//    second message role=agent; tag_ack received; clear restores role.
+// 4) Private room: own session + tag=agent -> account name, role=agent.
+// Also: the landing page shows the tag box FIRST (class .tag-test-box),
+// the private-join screen carries one too, and the sign-in screen does not.
 
 import WebSocket from 'ws'
 
 const BASE = 'http://127.0.0.1:8787'
 const WS_BASE = 'ws://127.0.0.1:8787/chat'
 const PUBLIC = 'CATCAFE8'
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 let failures = 0
 function check(name, cond, extra) {
@@ -29,10 +34,11 @@ const unlockRes = await fetch(BASE + '/door/unlock', {
 const cookie = (unlockRes.headers.get('set-cookie') || '').split(';')[0]
 check('door unlocked (9119)', (unlockRes.status === 302 || unlockRes.ok) && !!cookie, cookie)
 
-function connect(room, username, token) {
+function connect(room, username, token, tag) {
   return new Promise((resolve, reject) => {
     let url = WS_BASE + '?room=' + room + '&username=' + encodeURIComponent(username)
     if (token) url += '&token=' + encodeURIComponent(token)
+    if (tag) url += '&tag=' + encodeURIComponent(tag)
     const ws = new WebSocket(url, { headers: { Cookie: cookie } })
     const events = []
     ws.on('message', (d) => events.push(JSON.parse(d.toString())))
@@ -54,15 +60,37 @@ async function api(path, body) {
   return res
 }
 
-// ---------- TEST 0: landing page order ----------
+// Magic-link session with a custom nickname — proves the tag rides on top
+// of YOUR identity (name stays yours, only the tag changes).
+async function getSession(email, nickname) {
+  const req = await api('/auth/request', { email, nickname })
+  const reqData = await req.json()
+  const ver = await api('/auth/verify', { email, code: reqData.devCode })
+  const verData = await ver.json()
+  if (!verData.session) throw new Error('no session: ' + JSON.stringify(verData))
+  return verData.session
+}
+
+function randomCode() {
+  let code = ''
+  for (let i = 0; i < 8; i++) {
+    code += ALPHABET[Math.floor(Math.random() * ALPHABET.length)]
+  }
+  return code
+}
+
+// ---------- TEST 0: landing page ----------
 console.log('TEST 0: landing page')
 const html = await (await api('/')).text()
-const boxAt = html.indexOf('id="dev-test-box"')
+const boxAt = html.indexOf('class="tag-test-box"')
 const titleAt = html.indexOf('<h1>Public room</h1>')
-check('test box present', boxAt !== -1)
-check('test box is FIRST on the landing page', boxAt !== -1 && titleAt !== -1 && boxAt < titleAt, 'box@' + boxAt + ' title@' + titleAt)
+check('tag box present', boxAt !== -1)
+check('tag box is FIRST on the landing page', boxAt !== -1 && titleAt !== -1 && boxAt < titleAt, 'box@' + boxAt + ' title@' + titleAt)
+check('private join screen has its own tag box', html.indexOf('id="private-join"') !== -1 && html.indexOf('class="tag-test-box"', html.indexOf('id="private-join"')) !== -1)
+check('no instant-account session box anymore', !html.includes('dev-test-user-btn') && !html.includes('dev-test-agent-btn'))
+check('in-chat tag toggle present', html.includes('id="tag-header-btn"'))
 const signin = html.indexOf('id="signin"')
-check('sign-in screen no longer has the box', signin === -1 || !html.slice(signin, signin + 2500).includes('dev-test-box'))
+check('sign-in screen has no tag box', signin === -1 || !html.slice(signin, signin + 2500).includes('tag-test-box'))
 
 // ---------- TEST 1: walk-in stays anonymous ----------
 console.log('TEST 1: anonymous walk-in')
@@ -76,36 +104,58 @@ check('walker role is user', onWalker && onWalker.role === 'user', onWalker && o
 closeSocket(walker.ws)
 await wait(300)
 
-// ---------- TEST 2: test agent joins the public room ----------
-console.log('TEST 2: test agent in the public room')
-const agentRes = await api('/auth/dev-test', { role: 'agent' })
-const agent = await agentRes.json()
-check('agent session minted', agentRes.ok && agent.ok === true)
-
-const agentSide = await connect(PUBLIC, 'ignored-name', agent.session)
+// ---------- TEST 2: walk-in with the test tag ----------
+console.log('TEST 2: walk-in + tag=agent (the tag-only button)')
+const tagged = await connect(PUBLIC, 'CuriousCat', null, 'agent')
 await wait(500)
-agentSide.ws.send(JSON.stringify({ type: 'chat', text: 'hello public, from the agent side' }))
+tagged.ws.send(JSON.stringify({ type: 'chat', text: 'tagged message' }))
 await wait(500)
-const onAgentSide = agentSide.events.find(e => e.type === 'chat' && e.text === 'hello public, from the agent side')
-check('agent sender is account name', onAgentSide && onAgentSide.sender === 'Test Agent', onAgentSide && onAgentSide.sender)
-check('agent role rides the wire', onAgentSide && onAgentSide.role === 'agent', onAgentSide && onAgentSide.role)
-closeSocket(agentSide.ws)
+const onTagged = tagged.events.find(e => e.type === 'chat' && e.text === 'tagged message')
+check('sender keeps their own name', onTagged && onTagged.sender === 'CuriousCat', onTagged && onTagged.sender)
+check('role is agent (tag applied)', onTagged && onTagged.role === 'agent', onTagged && onTagged.role)
+closeSocket(tagged.ws)
 await wait(300)
 
-// ---------- TEST 3: test user joins the public room ----------
-console.log('TEST 3: test user in the public room')
-const userRes = await api('/auth/dev-test', { role: 'user' })
-const user = await userRes.json()
-check('user session minted', userRes.ok && user.ok === true)
+// ---------- TEST 3: live flip mid-room ----------
+console.log('TEST 3: live tag flip without reconnecting')
+const flipper = await connect(PUBLIC, 'FlipCat')
+await wait(500)
+flipper.ws.send(JSON.stringify({ type: 'chat', text: 'before the flip' }))
+await wait(400)
+flipper.ws.send(JSON.stringify({ type: 'tag', tag: 'agent' }))
+await wait(400)
+const ack = flipper.events.find(e => e.type === 'tag_ack')
+check('tag_ack received', !!ack && ack.role === 'agent', ack && ack.role)
+flipper.ws.send(JSON.stringify({ type: 'chat', text: 'after the flip' }))
+await wait(400)
+flipper.ws.send(JSON.stringify({ type: 'tag', tag: '' }))
+await wait(400)
+const ack2 = flipper.events.find(e => e.type === 'tag_ack' && e !== ack)
+check('clear ack restores user role', !!ack2 && ack2.role === 'user', ack2 && ack2.role)
+flipper.ws.send(JSON.stringify({ type: 'chat', text: 'after the clear' }))
+await wait(400)
+const before = flipper.events.find(e => e.type === 'chat' && e.text === 'before the flip')
+const after = flipper.events.find(e => e.type === 'chat' && e.text === 'after the flip')
+const cleared = flipper.events.find(e => e.type === 'chat' && e.text === 'after the clear')
+check('before flip: role user', before && before.role === 'user', before && before.role)
+check('after flip: role agent', after && after.role === 'agent', after && after.role)
+check('after clear: role user again', cleared && cleared.role === 'user', cleared && cleared.role)
+closeSocket(flipper.ws)
+await wait(300)
 
-const userSide = await connect(PUBLIC, 'ignored-name', user.session)
+// ---------- TEST 4: test tag inside a private room ----------
+console.log('TEST 4: test agent in a private room (own identity + tag)')
+const token = await getSession('tagtest' + Date.now() + '@minx.local', 'JounTest')
+const room = randomCode()
+const priv = await connect(room, 'ignored-name', token, 'agent')
 await wait(500)
-userSide.ws.send(JSON.stringify({ type: 'chat', text: 'hi public, human here' }))
+priv.ws.send(JSON.stringify({ type: 'chat', text: 'private tagged hello' }))
 await wait(500)
-const onUserSide = userSide.events.find(e => e.type === 'chat' && e.text === 'hi public, human here')
-check('user sender is account name', onUserSide && onUserSide.sender === 'Test User', onUserSide && onUserSide.sender)
-check('user role is user', onUserSide && onUserSide.role === 'user', onUserSide && onUserSide.role)
-closeSocket(userSide.ws)
+const onPriv = priv.events.find(e => e.type === 'chat' && e.text === 'private tagged hello')
+check('private sender is the account name', onPriv && onPriv.sender === 'JounTest', onPriv && onPriv.sender)
+check('private role is agent (tag applied)', onPriv && onPriv.role === 'agent', onPriv && onPriv.role)
+closeSocket(priv.ws)
+await wait(300)
 
 console.log(failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)')
 process.exit(failures === 0 ? 0 : 1)

@@ -156,8 +156,11 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     word-break: break-word;
   }
 
-  /* Test build: instant test accounts (dev only) */
-  #dev-test-box {
+  /* Test build: tag-only test buttons (dev only, v0.8.3). Pure tag
+     toggles — they add the AGENT tag to YOUR messages and nothing else
+     changes: no account, no name swap, no redirect. Works in the public
+     room and private rooms. */
+  .tag-test-box {
     background: #eef6ee;
     border: 1px dashed #2e7d32;
     border-radius: 4px;
@@ -165,10 +168,12 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     max-width: 380px;
     font-size: 0.8rem;
     color: #1b4d1f;
+    text-align: left;
   }
-  #dev-test-box .dt-title { font-weight: 700; margin: 0 0 4px; }
-  #dev-test-box .dt-row { display: flex; gap: 8px; margin: 10px 0; }
-  #dev-test-box button {
+  .tag-test-box .dt-title { font-weight: 700; margin: 0 0 4px; }
+  .tag-test-box p { margin: 4px 0; }
+  .tag-test-box .dt-row { display: flex; gap: 8px; margin: 10px 0; }
+  .tag-test-box button {
     flex: 1;
     background: #2e7d32;
     color: #fff;
@@ -178,9 +183,15 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     font-size: 0.8rem;
     cursor: pointer;
   }
-  #dev-test-box button:hover { background: #1b5e20; }
-  #dev-test-box button:disabled { opacity: 0.6; cursor: default; }
-  #dev-test-box .dt-note { margin: 0; color: #3d6b40; }
+  .tag-test-box button:hover { background: #1b5e20; }
+  .tag-test-box button.active {
+    background: #1b5e20;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #2e7d32;
+    font-weight: 700;
+  }
+  .tag-test-box .dt-note { margin: 0; color: #3d6b40; }
+  /* Compact in-chat toggle for the same tag (dev only) */
+  #tag-header-btn.active { background: #2e7d32; border-color: #2e7d32; color: #fff; }
 
   /* Agent senders get a small tag so role testing is visible */
   .msg .agent-tag {
@@ -517,7 +528,7 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   }
   html[data-view="agent"] #auth-dev-box b { color: var(--accent); }
   html[data-view="agent"] #auth-dev-box a { color: var(--accent); }
-  html[data-view="agent"] #dev-test-box { background: #14231a; color: #b5e3c0; }
+  html[data-view="agent"] .tag-test-box { background: #14231a; color: #b5e3c0; }
 
   /* ---- view switcher (agent accounts only; on screen at all times) ---- */
   #view-toggle {
@@ -573,18 +584,19 @@ __BANNER__
 
 <!-- PUBLIC ROOM — everyone lands here. -->
 <div id="public-join" class="screen">
-  <!-- Instant test accounts: dev build only. FIRST thing on the landing
-       page — one tap signs in as the role and drops straight into the
-       public room, so the AGENT tag + view switcher are live immediately. -->
-  <div id="dev-test-box" hidden>
-    <p class="dt-title">Instant test accounts (dev only)</p>
-    <p>One tap signs you in as the role and joins the public room. Open an incognito window and tap the other role to see both sides of the same room.</p>
+  <!-- Tag test: dev build only. FIRST thing on the landing page (v0.8.3).
+       Pure tag toggle — it adds the AGENT tag to whoever clicks it and
+       nothing else changes: no account, no name swap, no redirect. The
+       same box sits on the private room join screen, so a signed-in
+       account can carry the tag into a private room too. -->
+  <div class="tag-test-box" hidden>
+    <p class="dt-title">Tag test (dev only)</p>
+    <p>Adds the AGENT tag to your messages. Nothing else changes: same name, same account, same room.</p>
     <div class="dt-row">
-      <button id="dev-test-user-btn">Test User (human)</button>
-      <button id="dev-test-agent-btn">Test Agent</button>
+      <button class="tag-agent-btn">Test Agent</button>
+      <button class="tag-clear-btn">No tag</button>
     </div>
-    <p class="dt-note">Agent senders get an AGENT tag in chat. Sign in as Test Agent to see the agent view and its always-on switcher ("users' view" / "agents' view"). No such buttons on the real build.</p>
-    <div class="error" id="dev-test-error" style="margin-top:8px"></div>
+    <p class="dt-note">Works in the public room AND private rooms. Everyone else sees the tag on your messages.</p>
   </div>
   <h1>Public room</h1>
   <p>Everyone lands here. No code needed.</p>
@@ -611,6 +623,17 @@ __BANNER__
 
 <!-- PRIVATE ROOM JOIN -->
 <div id="private-join" class="screen">
+  <!-- Same tag toggle as the landing page — dev only. Lets a signed-in
+       account carry the AGENT tag into a private room (v0.8.3). -->
+  <div class="tag-test-box" hidden>
+    <p class="dt-title">Tag test (dev only)</p>
+    <p>Adds the AGENT tag to your messages. Nothing else changes: same name, same account, same room.</p>
+    <div class="dt-row">
+      <button class="tag-agent-btn">Test Agent</button>
+      <button class="tag-clear-btn">No tag</button>
+    </div>
+    <p class="dt-note">Works in the public room AND private rooms. Everyone else sees the tag on your messages.</p>
+  </div>
   <h1>Private room</h1>
   <div id="room-code-box">code <b id="room-code-display"></b><button id="copy-btn">Copy link</button></div>
   <p>Send the code or link to whoever you trust. This room is just for you.</p>
@@ -659,6 +682,7 @@ __BANNER__
     </div>
     <div class="head-actions">
       <span id="online-count">0 online</span>
+      <button id="tag-header-btn" style="display:none" title="Dev only: toggle the AGENT tag on your messages">AGENT tag: off</button>
       <button id="copy-header-btn" style="display:none">Copy link</button>
       <button id="close-room-btn" class="close" style="display:none">Close room</button>
       <button id="leave-btn" class="leave" style="display:none">Leave</button>
@@ -680,7 +704,7 @@ __BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
 <div id="version-box">
-  <span id="version-label">v0.8.2</span>
+  <span id="version-label">v0.8.3</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -692,10 +716,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.8.2'
+const VERSION = 'v0.8.3'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.8.3', note: 'Test buttons are tag-only now: Test Agent just adds the AGENT tag to your messages — no account, no name swap, no redirect. Works in the public room AND private rooms; toggle from the landing page, the private room join screen, or the chat header. Dev only' },
   { v: 'v0.8.2', note: 'Test accounts are now the FIRST thing on the landing page: one tap signs in as the role and joins the public room. Public room is session-aware — walk-ins stay anonymous, signed-in accounts show their name and role tag' },
   { v: 'v0.8.1', note: 'Door fix: no caching on door redirects — the code never re-asks after unlock. Test-account buttons moved to the top of the sign-in screen, right where you type your nickname' },
   { v: 'v0.8.0', note: 'Both lanes code-locked: official door 1221, test door stays 9119. Official now wears a COMING SOON sign — Heartline is a preview until launch' },
@@ -876,36 +901,38 @@ async function verifyCode() {
   }
 }
 
-// TEST BUILD ONLY: one-click instant test account for a role.
-// The server mints the session directly — no magic code, no cooldown.
-async function devTestSignIn(role) {
-  const err = document.getElementById('dev-test-error')
-  if (err) err.textContent = ''
-  const btn = document.getElementById(role === 'agent' ? 'dev-test-agent-btn' : 'dev-test-user-btn')
-  btn.disabled = true
-  try {
-    const res = await fetch('/auth/dev-test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: role })
-    })
-    const data = await res.json()
-    if (!data.ok) {
-      if (err) err.textContent = data.error || 'Test accounts are dev-only'
-      return
-    }
-    saveSession({ token: data.session, email: data.email, nickname: data.nickname, role: data.role })
-    updateAuthUI()
-    // Tapped from the landing page — drop straight into the public room
-    // as that role so the AGENT tag / view switcher are visible at once.
-    username = data.nickname || data.email
-    isPrivate = false
-    roomCode = ''
-    enterChat()
-  } catch (e) {
-    if (err) err.textContent = 'Network hiccup, try again'
-  } finally {
-    btn.disabled = false
+// ---------- test tag (dev only, v0.8.3) ----------
+// The dev test buttons are PURE TAG TOGGLES now: clicking Test Agent adds
+// the AGENT tag to YOUR messages — nothing else changes. No account is
+// minted, your name stays yours, no redirect. The tag rides the WS
+// connection as a param and can flip live mid-room. Prod never sees it.
+
+const TAG_KEY = 'minx_test_tag'
+let testTag = null   // 'agent' | null
+
+function setTestTag(tag) {
+  testTag = tag === 'agent' ? 'agent' : null
+  try { localStorage.setItem(TAG_KEY, testTag || '') } catch (e) {}
+  applyTagUI()
+  // Already in a room? Flip the tag on the live connection — future
+  // messages carry it without reconnecting.
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'tag', tag: testTag || '' }))
+  }
+}
+
+function applyTagUI() {
+  const active = testTag === 'agent'
+  document.querySelectorAll('.tag-agent-btn').forEach(function (btn) {
+    btn.classList.toggle('active', active)
+  })
+  document.querySelectorAll('.tag-clear-btn').forEach(function (btn) {
+    btn.classList.toggle('active', !active)
+  })
+  const hb = document.getElementById('tag-header-btn')
+  if (hb) {
+    hb.textContent = active ? 'AGENT tag: on' : 'AGENT tag: off'
+    hb.classList.toggle('active', active)
   }
 }
 
@@ -1112,6 +1139,11 @@ function connect() {
     // in the public room it lets test accounts show their role tag + switcher.
     wsUrl += '&token=' + encodeURIComponent(session.token) + '&role=' + encodeURIComponent(session.role || 'user')
   }
+  // Dev-only test tag: pure display tag, sent only on the test build.
+  // The server ignores it everywhere else (v0.8.3).
+  if (IS_DEV && testTag === 'agent') {
+    wsUrl += '&tag=agent'
+  }
   ws = new WebSocket(wsUrl)
 
   ws.onopen = function () {
@@ -1282,11 +1314,25 @@ document.getElementById('view-toggle').addEventListener('click', function () {
   }
 })
 
-// Instant test accounts exist on the test build only.
+// Tag-only test buttons exist on the test build only (v0.8.3).
 if (IS_DEV) {
-  document.getElementById('dev-test-box').hidden = false
-  document.getElementById('dev-test-user-btn').addEventListener('click', function () { devTestSignIn('user') })
-  document.getElementById('dev-test-agent-btn').addEventListener('click', function () { devTestSignIn('agent') })
+  let savedTag = null
+  try { savedTag = localStorage.getItem(TAG_KEY) } catch (e) {}
+  testTag = savedTag === 'agent' ? 'agent' : null
+
+  document.querySelectorAll('.tag-test-box').forEach(function (box) {
+    box.hidden = false
+  })
+  document.querySelectorAll('.tag-agent-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { setTestTag(testTag === 'agent' ? null : 'agent') })
+  })
+  document.querySelectorAll('.tag-clear-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { setTestTag(null) })
+  })
+  const tagHeaderBtn = document.getElementById('tag-header-btn')
+  tagHeaderBtn.style.display = ''
+  tagHeaderBtn.addEventListener('click', function () { setTestTag(testTag === 'agent' ? null : 'agent') })
+  applyTagUI()
 }
 
 document.getElementById('public-name').addEventListener('keydown', function (e) {

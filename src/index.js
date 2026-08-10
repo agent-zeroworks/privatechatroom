@@ -342,6 +342,11 @@ async function handleAuthRequest(request, env) {
 // human and agent sides from two windows (normal + incognito). Mints a
 // session directly — no magic code, no cooldown. Prod refuses outright:
 // this endpoint exists to be a test convenience, never a backdoor.
+//
+// v0.8.3: the landing-page test buttons are pure tag toggles now (no
+// session, no identity change), so nothing in the UI calls this endpoint
+// anymore. Kept for future work — e.g. minting a full agent session when
+// the agent VIEW needs testing again.
 const TEST_ACCOUNTS = {
 	user:  { email: 'test.user@minx.dev',  nickname: 'Test User' },
 	agent: { email: 'test.agent@minx.dev', nickname: 'Test Agent' }
@@ -467,6 +472,15 @@ async function handleWebSocket(request, env) {
 		// The role comes from the session record, never from the client URL,
 		// so nobody can self-assign 'agent' by editing a link.
 		role = user.role || 'user'
+	}
+
+	// v0.8.3 — TEST TAG (dev only). The dev test buttons are pure tag
+	// toggles: they change the display tag and nothing else. An explicit
+	// tag=agent on the WS URL overrides the display role on the test
+	// build only; the official build ignores the param entirely, so the
+	// "no self-assigned agent tag" rule still holds in prod.
+	if (env.APP_ENV === 'dev' && url.searchParams.get('tag') === 'agent') {
+		role = 'agent'
 	}
 
 	const id = env.CHATROOM.idFromName('room-' + room)
