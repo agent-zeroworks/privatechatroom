@@ -1,7 +1,8 @@
 // Minx's Chatroom — Cloudflare Worker
 // Main focus: the public room (PUBLIC_ROOM code, never destroyed).
 // Private rooms: every room is a Durable Object keyed by its 8-char code.
-// Rooms stay open until every party closes them.
+// Rooms live one week after first use, then the code goes dormant (locked,
+// history kept). The day real persistence ships, a config flip revives them.
 //
 // Auth (v0.3.0): magic-link login gates private rooms. Codes and sessions
 // live in KV, keyed with the env name so dev and prod never collide.
@@ -48,6 +49,12 @@ export default {
 
 		if (/^\/room\/[A-HJ-NP-Z2-9]{8}$/.test(path)) {
 			return serveFrontend(env)
+		}
+
+		// Room status — the frontend checks this before joining a private
+		// room so a dormant code shows the right screen instead of a dead WS.
+		if (path === '/room/status' && request.method === 'GET') {
+			return handleRoomStatus(request, env)
 		}
 
 		// WebSocket connection to a room
@@ -204,6 +211,23 @@ async function handleAuthMe(request, env) {
 		return json({ ok: false }, 401)
 	}
 	return json({ ok: true, email: user.email, nickname: user.nickname })
+}
+
+// Look up a room's lifecycle without opening a connection.
+// exists:false  -> code never used; creating is still free
+// dormant:true  -> code past its week; locked, history preserved
+async function handleRoomStatus(request, env) {
+	const room = (new URL(request.url).searchParams.get('room') || '').toUpperCase()
+	if (!CODE_RE.test(room)) {
+		return json({ error: 'Bad room code' }, 400)
+	}
+	if (room === PUBLIC_ROOM) {
+		// The house never sleeps.
+		return json({ exists: true, dormant: false, expiresAt: null })
+	}
+	const id = env.CHATROOM.idFromName('room-' + room)
+	const stub = env.CHATROOM.get(id)
+	return await stub.fetch(new Request('http://internal/status'))
 }
 
 // ---------------------------------------------------------------------------

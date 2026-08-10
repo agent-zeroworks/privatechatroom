@@ -393,6 +393,17 @@ __TEST_BANNER__
   <button class="foot-link" id="go-private-landing">Private rooms</button>
 </div>
 
+<!-- DORMANT ROOM — code past its week: locked, history kept, revival planned -->
+<div id="dormant" class="screen">
+  <h1>This room is asleep</h1>
+  <div id="room-code-box">code <b id="dormant-code-display"></b></div>
+  <p id="dormant-note">This room hit its one-week placeholder limit and went dormant. Its messages are tucked away safely, and the code stays reserved.</p>
+  <p id="dormant-expiry" class="or"></p>
+  <p>Revival is on the roadmap. When it ships, this room wakes up with everything intact.</p>
+  <button class="ghost" id="dormant-private-btn">Private rooms</button>
+  <button class="foot-link" id="dormant-public-btn">Public room</button>
+</div>
+
 <!-- SIGN IN — magic-link login. Gates private rooms. -->
 <div id="signin" class="screen">
   <h1>Sign in</h1>
@@ -449,9 +460,10 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.3.0'
+const VERSION = 'v0.4.0'
 const ENV_TAG = '__APP_ENV_TAG__'
 const VERSION_HISTORY = [
+  { v: 'v0.4.0', note: 'Room lifecycle: private rooms live one week after first use, then the code goes dormant (locked, history kept). No more dying on close; config flip ready for real persistence' },
   { v: 'v0.3.0', note: 'Magic-link login: private rooms require a signed-in identity; test build shows the link on screen (no email provider yet)' },
   { v: 'v0.2.3', note: 'Test banner: loud TEST BUILD ribbon on the dev worker only; auto-gone in prod' },
   { v: 'v0.2.2', note: 'Dev/prod split: dev branch deploys to test worker, main is official; badge shows -dev on test builds' },
@@ -617,6 +629,8 @@ function route() {
     document.title = 'Room ' + roomCode
     show(session ? 'private-join' : 'signin')
     updateAuthUI()
+    // A dormant code swaps this screen for the "room is asleep" one.
+    checkRoomStatus(roomCode)
   } else if (location.pathname === '/private') {
     roomCode = ''
     isPrivate = false
@@ -638,10 +652,29 @@ function route() {
 }
 
 function show(id) {
-  ['public-join', 'private-landing', 'private-join', 'signin', 'chat-screen'].forEach(function (s) {
+  ['public-join', 'private-landing', 'private-join', 'dormant', 'signin', 'chat-screen'].forEach(function (s) {
     var el = document.getElementById(s)
     el.classList.toggle('on', s === id)
   })
+}
+
+// Ask the server whether a code is still awake. Dormant -> asleep screen.
+async function checkRoomStatus(code) {
+  try {
+    const res = await fetch('/room/status?room=' + encodeURIComponent(code))
+    if (!res.ok) return
+    const data = await res.json()
+    if (data.dormant) {
+      document.getElementById('dormant-code-display').textContent = code
+      const exp = document.getElementById('dormant-expiry')
+      exp.textContent = data.expiresAt
+        ? 'Went dormant ' + new Date(data.expiresAt).toLocaleDateString()
+        : ''
+      show('dormant')
+    }
+  } catch (e) {
+    // Leave them on the join screen; the server rejects a dead room anyway.
+  }
 }
 
 // ---------- landing actions ----------
@@ -741,8 +774,10 @@ function enterChat() {
     isPrivate ? 'Only people with the code can join' : 'Everyone lands here. No code needed.'
 
   document.getElementById('copy-header-btn').style.display = isPrivate ? '' : 'none'
-  document.getElementById('close-room-btn').style.display = isPrivate ? '' : 'none'
-  document.getElementById('leave-btn').style.display = isPrivate ? 'none' : ''
+  // No more "Close room" — closing is just leaving now; the room lives its
+  // full week. One exit button for both.
+  document.getElementById('close-room-btn').style.display = 'none'
+  document.getElementById('leave-btn').style.display = ''
 
   show('chat-screen')
   connect()
@@ -868,24 +903,13 @@ function deleteMessage(id) {
   ws.send(JSON.stringify({ type: 'delete', id: id }))
 }
 
-// public room: just leave — the room lives on
+// leave — the room lives on either way
 function leaveRoom() {
   leaving = true
   if (ws && ws.readyState === WebSocket.OPEN) ws.close()
   ws = null
   clearTimeout(reconnectTimer)
-  location.href = '/'
-}
-
-// private room: close it — when everyone's gone, the room dies with the code
-function closeRoom() {
-  leaving = true
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'close' }))
-  }
-  ws = null
-  clearTimeout(reconnectTimer)
-  location.href = '/private'
+  location.href = isPrivate ? '/private' : '/'
 }
 
 function setStatus(state, label) {
@@ -902,12 +926,13 @@ document.getElementById('create-btn').addEventListener('click', createRoom)
 document.getElementById('join-code-btn').addEventListener('click', joinByCode)
 document.getElementById('copy-btn').addEventListener('click', copyLink)
 document.getElementById('copy-header-btn').addEventListener('click', copyHeaderLink)
-document.getElementById('close-room-btn').addEventListener('click', closeRoom)
 document.getElementById('leave-btn').addEventListener('click', leaveRoom)
 document.getElementById('send-btn').addEventListener('click', sendMessage)
 document.getElementById('go-private').addEventListener('click', function () { location.href = '/private' })
 document.getElementById('go-public').addEventListener('click', function () { location.href = '/' })
 document.getElementById('go-private-landing').addEventListener('click', function () { location.href = '/private' })
+document.getElementById('dormant-private-btn').addEventListener('click', function () { location.href = '/private' })
+document.getElementById('dormant-public-btn').addEventListener('click', function () { location.href = '/' })
 document.getElementById('auth-request-btn').addEventListener('click', requestLink)
 document.getElementById('auth-verify-btn').addEventListener('click', verifyCode)
 document.getElementById('auth-back').addEventListener('click', function () { location.href = '/' })

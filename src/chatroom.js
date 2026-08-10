@@ -1,9 +1,10 @@
 // Minx's Chatroom — Durable Object
 // Manages real-time room state: messages, connected users, broadcast.
 // The public room (PUBLIC_ROOM) never dies; its history expires after 24h.
-// Private rooms die when every party has explicitly closed them.
+// Private rooms live ROOM_LIFETIME_MS after first use, then the code goes
+// DORMANT: locked to new visitors, history preserved. No more dying on close.
 
-import { PUBLIC_ROOM } from './config.js'
+import { PUBLIC_ROOM, ROOM_LIFETIME_MS, REVIVE_DORMANT } from './config.js'
 
 // Public rooms forget messages older than 24 hours.
 const HISTORY_TTL_MS = 24 * 60 * 60 * 1000
@@ -23,21 +24,90 @@ export class Chatroom {
 
 		// Connected WebSocket sessions: Map<webSocket, { username: string }>
 		this.sessions = new Map()
-		// Sockets that explicitly closed the room (private rooms only)
-		this.closedBy = new Set()
+		// Room metadata (private rooms): { created_at, expires_at } persisted
+		// to storage. expires_at = null means the room never expires.
+		this.meta = null
 		// Message history (persisted to storage; keep last 100)
 		// Public room: also pruned to the last 24 hours.
 		this.messages = []
 		this.loaded = false
-		this.destroyed = false
+	}
+
+	// Load room metadata from storage (private rooms only).
+	async loadMeta() {
+		if (this.meta) return this.meta
+		if (this.isPublic) {
+			this.meta = {}
+			return this.meta
+		}
+		this.meta = (await this.state.storage.get('meta')) || null
+		return this.meta
+	}
+
+	// Create the room on first use: stamps created_at and expires_at.
+	// The week starts when the code is first opened, not when it was minted.
+	async ensureMeta() {
+		const meta = await this.loadMeta()
+		if (meta && meta.created_at) return meta
+		const now = Date.now()
+		const fresh = {
+			created_at: now,
+			expires_at: ROOM_LIFETIME_MS ? now + ROOM_LIFETIME_MS : null
+		}
+		this.meta = fresh
+		await this.state.storage.put('meta', fresh)
+		return fresh
+	}
+
+	// Is this room past its expiry? Public rooms and never-expiring rooms
+	// (expires_at === null) are never dormant.
+	async isDormant() {
+		const meta = await this.loadMeta()
+		if (!meta || !meta.expires_at) return false
+		return Date.now() > meta.expires_at
 	}
 
 	// Handler for incoming requests to the DO
 	async fetch(request) {
 		const url = new URL(request.url)
 
+		// Room status — lets the frontend show the dormant screen before
+		// attempting a connection.
+		if (url.pathname === '/status') {
+			const meta = await this.loadMeta()
+			if (!meta || !meta.created_at) {
+				return json({ exists: false })
+			}
+			return json({
+				exists: true,
+				dormant: await this.isDormant(),
+				createdAt: meta.created_at,
+				expiresAt: meta.expires_at || null
+			})
+		}
+
 		// WebSocket upgrade
 		if (url.pathname === '/websocket') {
+			// Private rooms: stamp the room on first use, then check expiry.
+			// A dormant code is locked — the room sleeps, its history kept.
+			if (!this.isPublic) {
+				await this.ensureMeta()
+				if (await this.isDormant()) {
+					if (REVIVE_DORMANT) {
+						// The day persistence ships: a visit wakes the room.
+						this.meta.expires_at = ROOM_LIFETIME_MS ? Date.now() + ROOM_LIFETIME_MS : null
+						await this.state.storage.put('meta', this.meta)
+					} else {
+						const meta = this.meta
+						return json({
+							error: 'dormant',
+							code: this.roomCode,
+							expiresAt: meta.expires_at
+						}, 410)
+					}
+				}
+			}
+
 			const pair = new WebSocketPair()
 			const [client, server] = Object.values(pair)
 
@@ -46,10 +116,6 @@ export class Chatroom {
 
 			// Accept the WebSocket
 			server.accept()
-
-			// A new connection resurrects the room — a code can be used again
-			// after everyone closed it, and it must be destroyable again too.
-			this.destroyed = false
 
 			// Load persisted history once (DOs hibernate between requests)
 			if (!this.loaded) {
@@ -122,18 +188,10 @@ export class Chatroom {
 					}
 
 					if (data.type === 'close') {
-						// User closed the room on their side
+						// Closing is just leaving now — the room itself lives on
+						// until its week is up. The code stays joinable.
 						this.sessions.delete(server)
-						if (this.isPublic) {
-							// Public room: closing is just leaving — the room lives on
-							this.broadcastSystem(username + ' left')
-						} else {
-							this.closedBy.add(server)
-							this.broadcastSystem(username + ' closed the room')
-						}
-						this.broadcastOnlineCount()
 						server.close()
-						await this.maybeDestroy()
 					}
 				} catch (e) {
 					// Ignore bad messages
@@ -143,11 +201,6 @@ export class Chatroom {
 			// Handle disconnect (explicit close fires this too)
 			server.addEventListener('close', () => {
 				this.sessions.delete(server)
-				if (this.closedBy.has(server)) {
-					this.closedBy.delete(server)
-					this.maybeDestroy()
-					return
-				}
 				this.broadcastSystem(username + ' left')
 				this.broadcastOnlineCount()
 			})
@@ -173,18 +226,8 @@ export class Chatroom {
 		}
 	}
 
-	// If everyone has closed the room, erase it — the code goes dead.
-	// The public room is exempt: it is the house, it never goes away.
-	async maybeDestroy() {
-		if (this.destroyed) return
-		if (this.isPublic) return
-		if (this.sessions.size > 0) return
-		if (this.closedBy.size === 0) return
-
-		this.destroyed = true
-		await this.state.storage.deleteAll()
-		this.messages = []
-	}
+	// Rooms never die by closing anymore. Private rooms sleep (dormant) a
+	// week after creation; public rooms are the house and never go away.
 
 	// Broadcast a message to all connected sessions
 	broadcast(data) {
@@ -211,4 +254,12 @@ export class Chatroom {
 			count: this.sessions.size
 		})
 	}
+}
+
+// Small JSON helper (module-scope so both the DO and future handlers use it).
+function json(data, status = 200) {
+	return new Response(JSON.stringify(data), {
+		status,
+		headers: { 'Content-Type': 'application/json;charset=UTF-8' }
+	})
 }
