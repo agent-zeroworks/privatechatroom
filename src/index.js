@@ -442,13 +442,22 @@ async function handleWebSocket(request, env) {
 		return new Response('Bad room code', { status: 400 })
 	}
 
-	// Identity: the public room stays anonymous-by-name; private rooms
+	// Identity: the public room stays anonymous for walk-ins (no token);
+	// a signed-in account (e.g. a test account) brings its name and role
+	// so the AGENT tag + view switcher work there too. Private rooms
 	// require a valid session, and the account name IS the username —
 	// no name spoofing behind a code.
 	let username
 	let role = 'user'
 	if (room === PUBLIC_ROOM) {
-		username = url.searchParams.get('username') || 'Anonymous'
+		const token = url.searchParams.get('token')
+		const user = token ? await sessionUser(env, token) : null
+		if (user) {
+			username = user.nickname || user.email
+			role = user.role || 'user'
+		} else {
+			username = url.searchParams.get('username') || 'Anonymous'
+		}
 	} else {
 		const user = await sessionUser(env, url.searchParams.get('token'))
 		if (!user) {

@@ -573,6 +573,19 @@ __BANNER__
 
 <!-- PUBLIC ROOM — everyone lands here. -->
 <div id="public-join" class="screen">
+  <!-- Instant test accounts: dev build only. FIRST thing on the landing
+       page — one tap signs in as the role and drops straight into the
+       public room, so the AGENT tag + view switcher are live immediately. -->
+  <div id="dev-test-box" hidden>
+    <p class="dt-title">Instant test accounts (dev only)</p>
+    <p>One tap signs you in as the role and joins the public room. Open an incognito window and tap the other role to see both sides of the same room.</p>
+    <div class="dt-row">
+      <button id="dev-test-user-btn">Test User (human)</button>
+      <button id="dev-test-agent-btn">Test Agent</button>
+    </div>
+    <p class="dt-note">Agent senders get an AGENT tag in chat. Sign in as Test Agent to see the agent view and its always-on switcher ("users' view" / "agents' view"). No such buttons on the real build.</p>
+    <div class="error" id="dev-test-error" style="margin-top:8px"></div>
+  </div>
   <h1>Public room</h1>
   <p>Everyone lands here. No code needed.</p>
   <input id="public-name" type="text" placeholder="Your name" maxlength="24" autocomplete="off">
@@ -621,18 +634,6 @@ __BANNER__
 <div id="signin" class="screen">
   <h1>Sign in</h1>
   <p>Private rooms are invite-only by code, and everyone inside is a signed-in account. One email, no passwords.</p>
-  <!-- Instant test accounts: dev build only. One click per role, no email step.
-       Kept at the TOP of the sign-in screen — right where you'd type your
-       nickname — so the tester sees them the moment the screen opens. -->
-  <div id="dev-test-box" hidden>
-    <p class="dt-title">Instant test accounts (dev only)</p>
-    <p>One click per role. Sign in as one here, open an incognito window and sign in as the other, then join the same room.</p>
-    <div class="dt-row">
-      <button id="dev-test-user-btn">Test User (human)</button>
-      <button id="dev-test-agent-btn">Test Agent</button>
-    </div>
-    <p class="dt-note">Agent senders get an AGENT tag in chat. Sign in as Test Agent to see the agent view and its always-on switcher ("users' view" / "agents' view"). No such buttons on the real build.</p>
-  </div>
   <input id="auth-email" type="email" placeholder="you@example.com" maxlength="120" autocomplete="email">
   <input id="auth-nick" type="text" placeholder="Nickname (optional)" maxlength="24" autocomplete="off">
   <button id="auth-request-btn">Send magic link</button>
@@ -679,7 +680,7 @@ __BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
 <div id="version-box">
-  <span id="version-label">v0.8.1</span>
+  <span id="version-label">v0.8.2</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -691,10 +692,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.8.1'
+const VERSION = 'v0.8.2'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.8.2', note: 'Test accounts are now the FIRST thing on the landing page: one tap signs in as the role and joins the public room. Public room is session-aware — walk-ins stay anonymous, signed-in accounts show their name and role tag' },
   { v: 'v0.8.1', note: 'Door fix: no caching on door redirects — the code never re-asks after unlock. Test-account buttons moved to the top of the sign-in screen, right where you type your nickname' },
   { v: 'v0.8.0', note: 'Both lanes code-locked: official door 1221, test door stays 9119. Official now wears a COMING SOON sign — Heartline is a preview until launch' },
   { v: 'v0.7.0', note: 'Test build door: the dev worker is now code-locked (server-enforced, with a rate limit). Official build stays open — prod never checks the door' },
@@ -877,8 +879,8 @@ async function verifyCode() {
 // TEST BUILD ONLY: one-click instant test account for a role.
 // The server mints the session directly — no magic code, no cooldown.
 async function devTestSignIn(role) {
-  const err = document.getElementById('auth-error')
-  err.textContent = ''
+  const err = document.getElementById('dev-test-error')
+  if (err) err.textContent = ''
   const btn = document.getElementById(role === 'agent' ? 'dev-test-agent-btn' : 'dev-test-user-btn')
   btn.disabled = true
   try {
@@ -889,19 +891,19 @@ async function devTestSignIn(role) {
     })
     const data = await res.json()
     if (!data.ok) {
-      err.textContent = data.error || 'Test accounts are dev-only'
+      if (err) err.textContent = data.error || 'Test accounts are dev-only'
       return
     }
     saveSession({ token: data.session, email: data.email, nickname: data.nickname, role: data.role })
     updateAuthUI()
-    // Tapped straight from the magic-link landing — send them to the lounge.
-    if (location.pathname === '/auth/verify') {
-      location.href = '/private'
-      return
-    }
-    route()
+    // Tapped from the landing page — drop straight into the public room
+    // as that role so the AGENT tag / view switcher are visible at once.
+    username = data.nickname || data.email
+    isPrivate = false
+    roomCode = ''
+    enterChat()
   } catch (e) {
-    err.textContent = 'Network hiccup, try again'
+    if (err) err.textContent = 'Network hiccup, try again'
   } finally {
     btn.disabled = false
   }
@@ -1105,7 +1107,9 @@ function connect() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const room = isPrivate ? roomCode : PUBLIC_ROOM
   let wsUrl = protocol + '//' + location.host + '/chat?room=' + room + '&username=' + encodeURIComponent(username)
-  if (isPrivate && session) {
+  if (session) {
+    // Signed-in identity travels into ANY room: private rooms need it, and
+    // in the public room it lets test accounts show their role tag + switcher.
     wsUrl += '&token=' + encodeURIComponent(session.token) + '&role=' + encodeURIComponent(session.role || 'user')
   }
   ws = new WebSocket(wsUrl)
