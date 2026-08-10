@@ -42,6 +42,10 @@ export default {
 		if (path === '/auth/me') {
 			return handleAuthMe(request, env)
 		}
+		// TEST BUILD ONLY: instant test accounts, one click, no email step.
+		if (path === '/auth/dev-test' && request.method === 'POST') {
+			return handleDevTest(request, env)
+		}
 
 		// Frontend: public room (main focus), private room landing, a room
 		// page, or the magic-link landing (GET on the verify path).
@@ -167,6 +171,31 @@ async function handleAuthRequest(request, env) {
 	return json({ ok: true, dev: false })
 }
 
+// TEST BUILD ONLY. Fixed identities per role so the developer can test the
+// human and agent sides from two windows (normal + incognito). Mints a
+// session directly — no magic code, no cooldown. Prod refuses outright:
+// this endpoint exists to be a test convenience, never a backdoor.
+const TEST_ACCOUNTS = {
+	user:  { email: 'test.user@minx.dev',  nickname: 'Test User' },
+	agent: { email: 'test.agent@minx.dev', nickname: 'Test Agent' }
+}
+
+async function handleDevTest(request, env) {
+	if (env.APP_ENV !== 'dev') {
+		return json({ ok: false, error: 'Not found' }, 404)
+	}
+	const body = await readBody(request)
+	const role = body.role === 'agent' ? 'agent' : 'user'
+	const account = TEST_ACCOUNTS[role]
+	const session = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '')
+	await env.ROOM_KV.put(
+		kvKey(env, 'session', session),
+		JSON.stringify({ email: account.email, nickname: account.nickname, role }),
+		{ expirationTtl: SESSION_TTL_S }
+	)
+	return json({ ok: true, session, email: account.email, nickname: account.nickname, role })
+}
+
 // Step 2: trade the code for a session.
 async function handleAuthVerify(request, env) {
 	const body = await readBody(request)
@@ -189,13 +218,14 @@ async function handleAuthVerify(request, env) {
 
 	const session = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '')
 	const nickname = rec.nickname || rec.email.split('@')[0]
+	// Normal sign-ups are human accounts until the platform says otherwise.
 	await env.ROOM_KV.put(
 		kvKey(env, 'session', session),
-		JSON.stringify({ email, nickname }),
+		JSON.stringify({ email, nickname, role: 'user' }),
 		{ expirationTtl: SESSION_TTL_S }
 	)
 
-	return json({ ok: true, session, email, nickname })
+	return json({ ok: true, session, email, nickname, role: 'user' })
 }
 
 async function handleAuthLogout(request, env) {
@@ -212,7 +242,7 @@ async function handleAuthMe(request, env) {
 	if (!user) {
 		return json({ ok: false }, 401)
 	}
-	return json({ ok: true, email: user.email, nickname: user.nickname })
+	return json({ ok: true, email: user.email, nickname: user.nickname, role: user.role || 'user' })
 }
 
 // Look up a room's lifecycle without opening a connection.
@@ -249,6 +279,7 @@ async function handleWebSocket(request, env) {
 	// require a valid session, and the account name IS the username —
 	// no name spoofing behind a code.
 	let username
+	let role = 'user'
 	if (room === PUBLIC_ROOM) {
 		username = url.searchParams.get('username') || 'Anonymous'
 	} else {
@@ -257,6 +288,9 @@ async function handleWebSocket(request, env) {
 			return new Response('Not signed in', { status: 401 })
 		}
 		username = user.nickname || user.email
+		// The role comes from the session record, never from the client URL,
+		// so nobody can self-assign 'agent' by editing a link.
+		role = user.role || 'user'
 	}
 
 	const id = env.CHATROOM.idFromName('room-' + room)
@@ -264,7 +298,7 @@ async function handleWebSocket(request, env) {
 
 	// Forward to the Durable Object for WebSocket upgrade
 	return await stub.fetch(
-		new Request('http://internal/websocket?room=' + encodeURIComponent(room) + '&username=' + encodeURIComponent(username), {
+		new Request('http://internal/websocket?room=' + encodeURIComponent(room) + '&username=' + encodeURIComponent(username) + '&role=' + encodeURIComponent(role), {
 			headers: { 'Upgrade': 'websocket' }
 		})
 	)

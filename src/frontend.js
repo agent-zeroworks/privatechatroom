@@ -126,6 +126,46 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     word-break: break-word;
   }
 
+  /* Test build: instant test accounts (dev only) */
+  #dev-test-box {
+    background: #eef6ee;
+    border: 1px dashed #2e7d32;
+    border-radius: 4px;
+    padding: 10px 14px;
+    max-width: 380px;
+    font-size: 0.8rem;
+    color: #1b4d1f;
+  }
+  #dev-test-box .dt-title { font-weight: 700; margin: 0 0 4px; }
+  #dev-test-box .dt-row { display: flex; gap: 8px; margin: 10px 0; }
+  #dev-test-box button {
+    flex: 1;
+    background: #2e7d32;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  #dev-test-box button:hover { background: #1b5e20; }
+  #dev-test-box button:disabled { opacity: 0.6; cursor: default; }
+  #dev-test-box .dt-note { margin: 0; color: #3d6b40; }
+
+  /* Agent senders get a small tag so role testing is visible */
+  .msg .agent-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: #2f2f2f;
+    color: #f2ead8;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    vertical-align: 1px;
+  }
+
   #room-code-box {
     background: #fff;
     border: 1px solid #ccc;
@@ -420,6 +460,16 @@ __TEST_BANNER__
     <input id="auth-code" class="code-input" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
     <button id="auth-verify-btn">Verify</button>
   </div>
+  <!-- Instant test accounts: dev build only. One click per role, no email step. -->
+  <div id="dev-test-box" hidden>
+    <p class="dt-title">Instant test accounts (dev only)</p>
+    <p>One click per role. Sign in as one here, open an incognito window and sign in as the other, then join the same room.</p>
+    <div class="dt-row">
+      <button id="dev-test-user-btn">Test User (human)</button>
+      <button id="dev-test-agent-btn">Test Agent</button>
+    </div>
+    <p class="dt-note">Agent senders get an AGENT tag in chat. No such buttons on the real build.</p>
+  </div>
   <div class="error" id="auth-error"></div>
   <button class="foot-link" id="auth-back">Public room</button>
 </div>
@@ -460,9 +510,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.4.1'
+const VERSION = 'v0.5.0'
 const ENV_TAG = '__APP_ENV_TAG__'
+const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.5.0', note: 'Test build: one-click instant test accounts — Test User (human) and Test Agent roles, no email step; agent senders carry an AGENT tag in chat (dev only)' },
   { v: 'v0.4.1', note: 'Lifecycle refined: during the week, private rooms keep the classic close-to-destroy (everyone closes → room deletes itself). Only rooms still alive at the week mark go dormant. Dormant rooms are reserved stock for future rentals' },
   { v: 'v0.4.0', note: 'Room lifecycle: private rooms live one week after first use, then the code goes dormant (locked, history kept). No more dying on close; config flip ready for real persistence' },
   { v: 'v0.3.0', note: 'Magic-link login: private rooms require a signed-in identity; test build shows the link on screen (no email provider yet)' },
@@ -495,17 +547,21 @@ function clearSession() {
   try { localStorage.removeItem(SESSION_KEY) } catch (e) {}
 }
 
+function roleLabel(role) {
+  return role === 'agent' ? ' (agent)' : ''
+}
+
 function updateAuthUI() {
   const statusEl = document.getElementById('auth-status')
   if (statusEl) {
     statusEl.textContent = session
-      ? 'Signed in as ' + session.nickname + ' (' + session.email + ')'
+      ? 'Signed in as ' + session.nickname + ' (' + session.email + ')' + roleLabel(session.role)
       : ''
   }
   const idEl = document.getElementById('join-identity')
   if (idEl) {
     idEl.textContent = session
-      ? 'You will appear as ' + (session.nickname || session.email)
+      ? 'You will appear as ' + (session.nickname || session.email) + roleLabel(session.role)
       : ''
   }
 }
@@ -579,6 +635,39 @@ async function verifyCode() {
     saveSession({ token: data.session, email: data.email, nickname: data.nickname })
     updateAuthUI()
     // Tapped magic link lands on /auth/verify — send them to the lounge.
+    if (location.pathname === '/auth/verify') {
+      location.href = '/private'
+      return
+    }
+    route()
+  } catch (e) {
+    err.textContent = 'Network hiccup, try again'
+  } finally {
+    btn.disabled = false
+  }
+}
+
+// TEST BUILD ONLY: one-click instant test account for a role.
+// The server mints the session directly — no magic code, no cooldown.
+async function devTestSignIn(role) {
+  const err = document.getElementById('auth-error')
+  err.textContent = ''
+  const btn = document.getElementById(role === 'agent' ? 'dev-test-agent-btn' : 'dev-test-user-btn')
+  btn.disabled = true
+  try {
+    const res = await fetch('/auth/dev-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: role })
+    })
+    const data = await res.json()
+    if (!data.ok) {
+      err.textContent = data.error || 'Test accounts are dev-only'
+      return
+    }
+    saveSession({ token: data.session, email: data.email, nickname: data.nickname, role: data.role })
+    updateAuthUI()
+    // Tapped straight from the magic-link landing — send them to the lounge.
     if (location.pathname === '/auth/verify') {
       location.href = '/private'
       return
@@ -790,7 +879,7 @@ function connect() {
   const room = isPrivate ? roomCode : PUBLIC_ROOM
   let wsUrl = protocol + '//' + location.host + '/chat?room=' + room + '&username=' + encodeURIComponent(username)
   if (isPrivate && session) {
-    wsUrl += '&token=' + encodeURIComponent(session.token)
+    wsUrl += '&token=' + encodeURIComponent(session.token) + '&role=' + encodeURIComponent(session.role || 'user')
   }
   ws = new WebSocket(wsUrl)
 
@@ -829,7 +918,7 @@ function handleMessage(data) {
       break
 
     case 'chat':
-      addMessage(data.sender, data.text, data.sender === username ? 'me' : 'other', data.id, data.ts)
+      addMessage(data.sender, data.text, data.sender === username ? 'me' : 'other', data.id, data.ts, data.role)
       break
 
     case 'online_count':
@@ -838,7 +927,7 @@ function handleMessage(data) {
 
     case 'history':
       data.messages.forEach(function (m) {
-        addMessage(m.sender, m.text, m.sender === username ? 'me' : 'other', m.id, m.ts)
+        addMessage(m.sender, m.text, m.sender === username ? 'me' : 'other', m.id, m.ts, m.role)
       })
       scrollToBottom()
       break
@@ -850,7 +939,7 @@ function handleMessage(data) {
   }
 }
 
-function addMessage(sender, text, type, id, ts) {
+function addMessage(sender, text, type, id, ts, role) {
   const msgs = document.getElementById('messages')
   const div = document.createElement('div')
   div.className = 'msg ' + type
@@ -863,6 +952,12 @@ function addMessage(sender, text, type, id, ts) {
     const nameEl = document.createElement('div')
     nameEl.className = 'name'
     nameEl.textContent = sender
+    if (role === 'agent') {
+      const tag = document.createElement('span')
+      tag.className = 'agent-tag'
+      tag.textContent = 'AGENT'
+      nameEl.appendChild(tag)
+    }
     div.appendChild(nameEl)
     div.appendChild(document.createTextNode(text))
 
@@ -950,6 +1045,13 @@ document.getElementById('auth-verify-btn').addEventListener('click', verifyCode)
 document.getElementById('auth-back').addEventListener('click', function () { location.href = '/' })
 document.getElementById('signout-btn').addEventListener('click', signOut)
 
+// Instant test accounts exist on the test build only.
+if (IS_DEV) {
+  document.getElementById('dev-test-box').hidden = false
+  document.getElementById('dev-test-user-btn').addEventListener('click', function () { devTestSignIn('user') })
+  document.getElementById('dev-test-agent-btn').addEventListener('click', function () { devTestSignIn('agent') })
+}
+
 document.getElementById('public-name').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') joinPublic()
 })
@@ -1014,7 +1116,7 @@ async function boot() {
         const res = await fetch('/auth/me?token=' + encodeURIComponent(parsed.token))
         if (res.ok) {
           const me = await res.json()
-          session = { token: parsed.token, email: me.email, nickname: me.nickname }
+          session = { token: parsed.token, email: me.email, nickname: me.nickname, role: me.role || 'user' }
         } else {
           localStorage.removeItem(SESSION_KEY)
         }

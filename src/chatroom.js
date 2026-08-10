@@ -118,6 +118,9 @@ export class Chatroom {
 
 			// Parse the username from the URL
 			let username = url.searchParams.get('username') || 'Anonymous'
+			// Role rides along from the auth layer ('user' | 'agent'); the
+			// public room never sends one, so it defaults to user.
+			const role = url.searchParams.get('role') || 'user'
 
 			// Accept the WebSocket
 			server.accept()
@@ -136,7 +139,7 @@ export class Chatroom {
 			await this.pruneExpired()
 
 			// Store the session
-			this.sessions.set(server, { username })
+			this.sessions.set(server, { username, role })
 
 			// Send chat history to the new user
 			server.send(JSON.stringify({
@@ -160,6 +163,7 @@ export class Chatroom {
 							type: 'chat',
 							id: crypto.randomUUID(),
 							sender: username,
+							role: role,
 							text: data.text.trim(),
 							ts: Date.now()
 						}
