@@ -42,14 +42,26 @@ export default {
 		// door cookie gets sent to /door. Dev and prod have their own codes
 		// (9119 test / 1221 official). Polite door, not a vault — it keeps
 		// randoms from wandering into a preview.
+		//
+		// v0.8.1: every door response is no-store. A cached 302 to /door would
+		// bounce even visitors holding a valid cookie — the "asks me for the
+		// code again on every refresh" bug. No redirect here may ever be
+		// cached by the edge or the browser.
 		if (doorEnabled(env) && !doorUnlocked(request, env)) {
 			if (path === '/health') {
 				return new Response('ok', { status: 200 })
 			}
 			// Browsers get bounced to the door; API/WS callers get a flat 403.
-			return request.method === 'GET' || request.method === 'HEAD'
-				? Response.redirect(new URL('/door', request.url).toString(), 302)
-				: new Response('Locked', { status: 403 })
+			if (request.method === 'GET' || request.method === 'HEAD') {
+				return new Response(null, {
+					status: 302,
+					headers: {
+						'Location': new URL('/door', request.url).toString(),
+						'Cache-Control': 'no-store, no-cache, must-revalidate'
+					}
+				})
+			}
+			return new Response('Locked', { status: 403, headers: { 'Cache-Control': 'no-store' } })
 		}
 
 		// Auth endpoints (magic-link login)
@@ -170,7 +182,7 @@ async function handleDoorUnlock(request, env) {
 	const failKey = kvKey(env, 'door:fail', ip)
 	const fails = Number(await env.ROOM_KV.get(failKey)) || 0
 	if (fails >= DOOR_MAX_ATTEMPTS) {
-		return Response.redirect(new URL('/door?e=2', request.url).toString(), 302)
+		return redirectNoStore('/door?e=2', request)
 	}
 
 	const form = await request.formData()
@@ -181,13 +193,29 @@ async function handleDoorUnlock(request, env) {
 			status: 302,
 			headers: {
 				'Location': new URL('/', request.url).toString(),
-				'Set-Cookie': DOOR_COOKIE + '=' + DOOR_COOKIE_VALUE + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000'
+				// 30-day door pass. Never cache the response that mints it.
+				'Cache-Control': 'no-store, no-cache, must-revalidate',
+				'Set-Cookie': DOOR_COOKIE + '=' + DOOR_COOKIE_VALUE + '; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=2592000'
 			}
 		})
 	}
 
 	await env.ROOM_KV.put(failKey, String(fails + 1), { expirationTtl: DOOR_WINDOW_S })
-	return Response.redirect(new URL('/door?e=1', request.url).toString(), 302)
+	return redirectNoStore('/door?e=1', request)
+}
+
+// A 302 that must never be cached (edge or browser). If a lock redirect
+// gets cached, every refresh of the same URL bounces straight back to the
+// door — even with a valid cookie — because the server never even sees the
+// request. v0.8.1 makes that impossible.
+function redirectNoStore(path, request) {
+	return new Response(null, {
+		status: 302,
+		headers: {
+			'Location': new URL(path, request.url).toString(),
+			'Cache-Control': 'no-store, no-cache, must-revalidate'
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

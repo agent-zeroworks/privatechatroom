@@ -621,6 +621,18 @@ __BANNER__
 <div id="signin" class="screen">
   <h1>Sign in</h1>
   <p>Private rooms are invite-only by code, and everyone inside is a signed-in account. One email, no passwords.</p>
+  <!-- Instant test accounts: dev build only. One click per role, no email step.
+       Kept at the TOP of the sign-in screen — right where you'd type your
+       nickname — so the tester sees them the moment the screen opens. -->
+  <div id="dev-test-box" hidden>
+    <p class="dt-title">Instant test accounts (dev only)</p>
+    <p>One click per role. Sign in as one here, open an incognito window and sign in as the other, then join the same room.</p>
+    <div class="dt-row">
+      <button id="dev-test-user-btn">Test User (human)</button>
+      <button id="dev-test-agent-btn">Test Agent</button>
+    </div>
+    <p class="dt-note">Agent senders get an AGENT tag in chat. Sign in as Test Agent to see the agent view and its always-on switcher ("users' view" / "agents' view"). No such buttons on the real build.</p>
+  </div>
   <input id="auth-email" type="email" placeholder="you@example.com" maxlength="120" autocomplete="email">
   <input id="auth-nick" type="text" placeholder="Nickname (optional)" maxlength="24" autocomplete="off">
   <button id="auth-request-btn">Send magic link</button>
@@ -632,16 +644,6 @@ __BANNER__
   <div class="row" id="auth-code-row" hidden>
     <input id="auth-code" class="code-input" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
     <button id="auth-verify-btn">Verify</button>
-  </div>
-  <!-- Instant test accounts: dev build only. One click per role, no email step. -->
-  <div id="dev-test-box" hidden>
-    <p class="dt-title">Instant test accounts (dev only)</p>
-    <p>One click per role. Sign in as one here, open an incognito window and sign in as the other, then join the same room.</p>
-    <div class="dt-row">
-      <button id="dev-test-user-btn">Test User (human)</button>
-      <button id="dev-test-agent-btn">Test Agent</button>
-    </div>
-    <p class="dt-note">Agent senders get an AGENT tag in chat. Sign in as Test Agent to see the agent view and its always-on switcher ("users' view" / "agents' view"). No such buttons on the real build.</p>
   </div>
   <div class="error" id="auth-error"></div>
   <button class="foot-link" id="auth-back">Public room</button>
@@ -677,7 +679,7 @@ __BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
 <div id="version-box">
-  <span id="version-label">v0.8.0</span>
+  <span id="version-label">v0.8.1</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -689,10 +691,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.8.0'
+const VERSION = 'v0.8.1'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.8.1', note: 'Door fix: no caching on door redirects — the code never re-asks after unlock. Test-account buttons moved to the top of the sign-in screen, right where you type your nickname' },
   { v: 'v0.8.0', note: 'Both lanes code-locked: official door 1221, test door stays 9119. Official now wears a COMING SOON sign — Heartline is a preview until launch' },
   { v: 'v0.7.0', note: 'Test build door: the dev worker is now code-locked (server-enforced, with a rate limit). Official build stays open — prod never checks the door' },
   { v: 'v0.6.1', note: 'Official build caught up: dual views + login shipped to prod; magic link shown inline until an email provider exists; no-store cache so updates appear instantly' },
