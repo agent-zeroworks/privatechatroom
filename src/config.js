@@ -22,3 +22,13 @@ export const CODE_RE = /^[A-HJ-NP-Z2-9]{8}$/
 // No other code changes needed.
 export const ROOM_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000 // 1 week (placeholder)
 export const REVIVE_DORMANT = false
+
+// ---------------------------------------------------------------------------
+// Magic-link delivery — TEMPORARY: no email provider yet.
+// ---------------------------------------------------------------------------
+// With SHOW_CODE_INLINE on, the magic link + 6-digit code are shown on
+// screen after "send" (works on prod AND dev, so the official build is
+// usable today). THE DAY AN EMAIL PROVIDER SHIPS: set this to false and
+// wire the provider in handleAuthRequest — the link gets emailed instead
+// of displayed. The test-account endpoint stays dev-only regardless.
+export const SHOW_CODE_INLINE = true

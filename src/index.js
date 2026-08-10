@@ -12,7 +12,7 @@
 // inline on the sign-in screen instead of being emailed.
 
 import { Chatroom } from './chatroom.js'
-import { PUBLIC_ROOM, CODE_RE } from './config.js'
+import { PUBLIC_ROOM, CODE_RE, SHOW_CODE_INLINE } from './config.js'
 import { FRONTEND } from './frontend.js'
 
 // Magic code: 6 digits, single use, 10 minutes.
@@ -159,11 +159,10 @@ async function handleAuthRequest(request, env) {
 	)
 	await env.ROOM_KV.put(lastKey, String(Date.now()), { expirationTtl: 3600 })
 
-	// TEST BUILD: no email provider yet, so the link is returned inline and
-	// the frontend shows it on screen. The day a provider is added, this
-	// branch emails the link instead of returning it.
-	const isDev = env.APP_ENV === 'dev'
-	if (isDev) {
+	// Magic-link delivery: with SHOW_CODE_INLINE on (no email provider yet),
+	// the link is returned inline and the frontend shows it on screen. The
+	// day a provider is added, flip the flag and email the link instead.
+	if (SHOW_CODE_INLINE) {
 		const origin = new URL(request.url).origin
 		const devLink = origin + '/auth/verify?code=' + code + '&email=' + encodeURIComponent(email)
 		return json({ ok: true, dev: true, devLink, devCode: code })

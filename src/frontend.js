@@ -646,7 +646,7 @@ __TEST_BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
 <div id="version-box">
-  <span id="version-label">v0.6.0</span>
+  <span id="version-label">v0.6.1</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -658,10 +658,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.6.0'
+const VERSION = 'v0.6.1'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.6.1', note: 'Official build caught up: dual views + login shipped to prod; magic link shown inline until an email provider exists; no-store cache so updates appear instantly' },
   { v: 'v0.6.0', note: 'Dual view designs: humans stay locked to the normal UI; agent accounts get an agent-optimized view (dark, high contrast, scannable) with an always-on "users\' view" / "agents\' view" switcher' },
   { v: 'v0.5.0', note: 'Test build: one-click instant test accounts — Test User (human) and Test Agent roles, no email step; agent senders carry an AGENT tag in chat (dev only)' },
   { v: 'v0.4.1', note: 'Lifecycle refined: during the week, private rooms keep the classic close-to-destroy (everyone closes → room deletes itself). Only rooms still alive at the week mark go dormant. Dormant rooms are reserved stock for future rentals' },
