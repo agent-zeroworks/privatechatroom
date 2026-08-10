@@ -3,6 +3,7 @@
 //   /             -> public room join (the main focus)
 //   /private      -> private room landing (create / join by code, tucked aside)
 //   /room/<code>  -> private room join
+//   /auth/verify  -> magic-link landing (sign-in screen; dev shows link inline)
 //
 // NOTE: String.raw keeps backslashes intact, so regexes inside this HTML
 // survive verbatim. Backticks and ${ are the only escapes needed — the
@@ -95,6 +96,34 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     color: #b3261e;
     font-size: 0.8rem;
     min-height: 1.1em;
+  }
+
+  [hidden] { display: none !important; }
+
+  /* Magic-link sign-in — the dev build shows the link inline (no email yet) */
+  #auth-dev-box {
+    background: #fff8e1;
+    border: 1px dashed #b26a00;
+    border-radius: 4px;
+    padding: 10px 14px;
+    max-width: 380px;
+    font-size: 0.8rem;
+    color: #5a3a00;
+    word-break: break-all;
+  }
+  #auth-dev-box p { margin: 4px 0; }
+  #auth-dev-box a { color: #4a6fa5; }
+  #auth-dev-box b {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 1.2rem;
+    letter-spacing: 3px;
+    color: #333;
+  }
+  #auth-status {
+    font-size: 0.8rem;
+    color: #777;
+    max-width: 380px;
+    word-break: break-word;
   }
 
   #room-code-box {
@@ -341,7 +370,8 @@ __TEST_BANNER__
 <!-- PRIVATE ROOMS -->
 <div id="private-landing" class="screen">
   <h1>Private rooms</h1>
-  <p>Create a room and share the code. Only people with the code can join.</p>
+  <p>Create a room and share the code. Only signed-in people with the code can join.</p>
+  <div id="auth-status"></div>
   <button id="create-btn">Create a private room</button>
   <div class="or">or</div>
   <div class="row">
@@ -349,6 +379,7 @@ __TEST_BANNER__
     <button id="join-code-btn">Join</button>
   </div>
   <div class="error" id="code-error"></div>
+  <button class="foot-link" id="signout-btn">Sign out</button>
   <button class="foot-link" id="go-public">Public room</button>
 </div>
 
@@ -357,9 +388,29 @@ __TEST_BANNER__
   <h1>Private room</h1>
   <div id="room-code-box">code <b id="room-code-display"></b><button id="copy-btn">Copy link</button></div>
   <p>Send the code or link to whoever you trust. This room is just for you.</p>
-  <input id="private-name" type="text" placeholder="Your name" maxlength="24" autocomplete="off">
+  <p id="join-identity"></p>
   <button id="private-join-btn">Join</button>
   <button class="foot-link" id="go-private-landing">Private rooms</button>
+</div>
+
+<!-- SIGN IN — magic-link login. Gates private rooms. -->
+<div id="signin" class="screen">
+  <h1>Sign in</h1>
+  <p>Private rooms are invite-only by code, and everyone inside is a signed-in account. One email, no passwords.</p>
+  <input id="auth-email" type="email" placeholder="you@example.com" maxlength="120" autocomplete="email">
+  <input id="auth-nick" type="text" placeholder="Nickname (optional)" maxlength="24" autocomplete="off">
+  <button id="auth-request-btn">Send magic link</button>
+  <div id="auth-dev-box" hidden>
+    <p>TEST BUILD — no email service yet, so here is your link and code:</p>
+    <a id="auth-dev-link" href="#"></a>
+    <p>Code: <b id="auth-dev-code"></b></p>
+  </div>
+  <div class="row" id="auth-code-row" hidden>
+    <input id="auth-code" class="code-input" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+    <button id="auth-verify-btn">Verify</button>
+  </div>
+  <div class="error" id="auth-error"></div>
+  <button class="foot-link" id="auth-back">Public room</button>
 </div>
 
 <!-- CHAT -->
@@ -398,9 +449,10 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.2.3'
+const VERSION = 'v0.3.0'
 const ENV_TAG = '__APP_ENV_TAG__'
 const VERSION_HISTORY = [
+  { v: 'v0.3.0', note: 'Magic-link login: private rooms require a signed-in identity; test build shows the link on screen (no email provider yet)' },
   { v: 'v0.2.3', note: 'Test banner: loud TEST BUILD ribbon on the dev worker only; auto-gone in prod' },
   { v: 'v0.2.2', note: 'Dev/prod split: dev branch deploys to test worker, main is official; badge shows -dev on test builds' },
   { v: 'v0.2.1-dev', note: 'Version system: SemVer badge bottom-right, tap for history' },
@@ -415,9 +467,146 @@ let isPrivate = false
 let reconnectTimer = null
 let leaving = false
 
+// ---------- session (magic-link login) ----------
+
+const SESSION_KEY = 'minx_session'
+let session = null   // { token, email, nickname }
+
+function saveSession(s) {
+  session = s
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)) } catch (e) {}
+}
+
+function clearSession() {
+  session = null
+  try { localStorage.removeItem(SESSION_KEY) } catch (e) {}
+}
+
+function updateAuthUI() {
+  const statusEl = document.getElementById('auth-status')
+  if (statusEl) {
+    statusEl.textContent = session
+      ? 'Signed in as ' + session.nickname + ' (' + session.email + ')'
+      : ''
+  }
+  const idEl = document.getElementById('join-identity')
+  if (idEl) {
+    idEl.textContent = session
+      ? 'You will appear as ' + (session.nickname || session.email)
+      : ''
+  }
+}
+
+// Private rooms require a signed-in identity (enforced in route()).
+
+async function requestLink() {
+  const email = document.getElementById('auth-email').value.trim()
+  const nick = document.getElementById('auth-nick').value.trim()
+  const err = document.getElementById('auth-error')
+  const btn = document.getElementById('auth-request-btn')
+  err.textContent = ''
+  if (!email) {
+    err.textContent = 'Email first'
+    document.getElementById('auth-email').focus()
+    return
+  }
+  btn.disabled = true
+  btn.textContent = 'Sending...'
+  try {
+    const res = await fetch('/auth/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, nickname: nick })
+    })
+    const data = await res.json()
+    if (!data.ok) {
+      err.textContent = data.error || 'Something broke, try again'
+      return
+    }
+    if (data.dev) {
+      // TEST BUILD: no email yet — show the magic link inline.
+      const linkEl = document.getElementById('auth-dev-link')
+      linkEl.href = data.devLink
+      linkEl.textContent = data.devLink
+      document.getElementById('auth-dev-code').textContent = data.devCode
+      document.getElementById('auth-dev-box').hidden = false
+      document.getElementById('auth-code-row').hidden = false
+      document.getElementById('auth-code').focus()
+    }
+  } catch (e) {
+    err.textContent = 'Network hiccup, try again'
+  } finally {
+    btn.disabled = false
+    btn.textContent = 'Send magic link'
+  }
+}
+
+async function verifyCode() {
+  const email = document.getElementById('auth-email').value.trim()
+  const code = document.getElementById('auth-code').value.trim()
+  const err = document.getElementById('auth-error')
+  err.textContent = ''
+  if (!code) {
+    document.getElementById('auth-code').focus()
+    return
+  }
+  const btn = document.getElementById('auth-verify-btn')
+  btn.disabled = true
+  try {
+    const res = await fetch('/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, code: code })
+    })
+    const data = await res.json()
+    if (!data.ok) {
+      err.textContent = data.error || 'Wrong code'
+      return
+    }
+    saveSession({ token: data.session, email: data.email, nickname: data.nickname })
+    updateAuthUI()
+    // Tapped magic link lands on /auth/verify — send them to the lounge.
+    if (location.pathname === '/auth/verify') {
+      location.href = '/private'
+      return
+    }
+    route()
+  } catch (e) {
+    err.textContent = 'Network hiccup, try again'
+  } finally {
+    btn.disabled = false
+  }
+}
+
+function signOut() {
+  const token = session ? session.token : null
+  clearSession()
+  updateAuthUI()
+  if (token) {
+    fetch('/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: token })
+    }).catch(function () {})
+  }
+  route()
+}
+
 // ---------- routing ----------
 
 function route() {
+  // Magic link in the URL? Prefill and consume it (tapped dev link).
+  const params = new URLSearchParams(location.search)
+  if (params.get('code')) {
+    document.getElementById('auth-email').value = params.get('email') || ''
+    document.getElementById('auth-code').value = params.get('code')
+    document.getElementById('auth-dev-box').hidden = false
+    document.getElementById('auth-dev-link').textContent = 'Magic link received — hit Verify'
+    document.getElementById('auth-dev-code').textContent = params.get('code')
+    document.getElementById('auth-code-row').hidden = false
+    history.replaceState({}, '', location.pathname)
+  }
+
   const parts = location.pathname.split('/').filter(Boolean)
   const roomMatch = parts.length === 2 && parts[0] === 'room' && CODE_RE.test(parts[1])
 
@@ -426,12 +615,20 @@ function route() {
     isPrivate = true
     document.getElementById('room-code-display').textContent = roomCode
     document.title = 'Room ' + roomCode
-    show('private-join')
+    show(session ? 'private-join' : 'signin')
+    updateAuthUI()
   } else if (location.pathname === '/private') {
     roomCode = ''
     isPrivate = false
     document.title = 'Private rooms'
-    show('private-landing')
+    show(session ? 'private-landing' : 'signin')
+    updateAuthUI()
+  } else if (location.pathname === '/auth/verify') {
+    roomCode = ''
+    isPrivate = false
+    document.title = 'Sign in'
+    show('signin')
+    updateAuthUI()
   } else {
     roomCode = ''
     isPrivate = false
@@ -441,7 +638,7 @@ function route() {
 }
 
 function show(id) {
-  ['public-join', 'private-landing', 'private-join', 'chat-screen'].forEach(function (s) {
+  ['public-join', 'private-landing', 'private-join', 'signin', 'chat-screen'].forEach(function (s) {
     var el = document.getElementById(s)
     el.classList.toggle('on', s === id)
   })
@@ -529,10 +726,11 @@ function joinPublic() {
 }
 
 function joinPrivate() {
-  const input = document.getElementById('private-name')
-  const name = input.value.trim()
-  if (!name) return
-  username = name
+  if (!session) {
+    route()
+    return
+  }
+  username = session.nickname || session.email
   enterChat()
 }
 
@@ -556,7 +754,10 @@ function connect() {
   setStatus('connecting', 'Connecting...')
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const room = isPrivate ? roomCode : PUBLIC_ROOM
-  const wsUrl = protocol + '//' + location.host + '/chat?room=' + room + '&username=' + encodeURIComponent(username)
+  let wsUrl = protocol + '//' + location.host + '/chat?room=' + room + '&username=' + encodeURIComponent(username)
+  if (isPrivate && session) {
+    wsUrl += '&token=' + encodeURIComponent(session.token)
+  }
   ws = new WebSocket(wsUrl)
 
   ws.onopen = function () {
@@ -707,12 +908,19 @@ document.getElementById('send-btn').addEventListener('click', sendMessage)
 document.getElementById('go-private').addEventListener('click', function () { location.href = '/private' })
 document.getElementById('go-public').addEventListener('click', function () { location.href = '/' })
 document.getElementById('go-private-landing').addEventListener('click', function () { location.href = '/private' })
+document.getElementById('auth-request-btn').addEventListener('click', requestLink)
+document.getElementById('auth-verify-btn').addEventListener('click', verifyCode)
+document.getElementById('auth-back').addEventListener('click', function () { location.href = '/' })
+document.getElementById('signout-btn').addEventListener('click', signOut)
 
 document.getElementById('public-name').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') joinPublic()
 })
-document.getElementById('private-name').addEventListener('keydown', function (e) {
-  if (e.key === 'Enter') joinPrivate()
+document.getElementById('auth-email').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') requestLink()
+})
+document.getElementById('auth-code').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') verifyCode()
 })
 document.getElementById('msg-input').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') sendMessage()
@@ -757,7 +965,33 @@ document.addEventListener('click', function () {
   versionHistory.hidden = true
 })
 
-route()
+// ---------- boot ----------
+
+// Restore a saved session, validate it against the server, then route.
+async function boot() {
+  try {
+    const saved = localStorage.getItem(SESSION_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (parsed && parsed.token) {
+        const res = await fetch('/auth/me?token=' + encodeURIComponent(parsed.token))
+        if (res.ok) {
+          const me = await res.json()
+          session = { token: parsed.token, email: me.email, nickname: me.nickname }
+        } else {
+          localStorage.removeItem(SESSION_KEY)
+        }
+      }
+    }
+  } catch (e) {
+    // Offline or KV lag — keep the saved session; the server will 401
+    // if it's truly dead and the sign-in screen takes over.
+  }
+  updateAuthUI()
+  route()
+}
+
+boot()
 </script>
 </body>
 </html>`
