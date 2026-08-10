@@ -12,7 +12,7 @@
 // inline on the sign-in screen instead of being emailed.
 
 import { Chatroom } from './chatroom.js'
-import { PUBLIC_ROOM, CODE_RE, SHOW_CODE_INLINE, DOOR_CODE, DOOR_COOKIE, DOOR_COOKIE_VALUE, DOOR_MAX_ATTEMPTS, DOOR_WINDOW_S } from './config.js'
+import { PUBLIC_ROOM, CODE_RE, SHOW_CODE_INLINE, DOOR_ENABLED, DOOR_CODES, DOOR_COOKIE, DOOR_COOKIE_VALUE, DOOR_MAX_ATTEMPTS, DOOR_WINDOW_S } from './config.js'
 import { FRONTEND } from './frontend.js'
 
 // Magic code: 6 digits, single use, 10 minutes.
@@ -38,10 +38,11 @@ export default {
 			return handleDoorUnlock(request, env)
 		}
 
-		// TEST-BUILD DOOR (v0.7.0): the dev worker is code-locked. Every
-		// request without the door cookie gets sent to /door. Prod never
-		// checks this — the official build stays open by design.
-		if (env.APP_ENV === 'dev' && !doorUnlocked(request, env)) {
+		// DOOR (v0.8.0): both lanes are code-locked. Every request without the
+		// door cookie gets sent to /door. Dev and prod have their own codes
+		// (9119 test / 1221 official). Polite door, not a vault — it keeps
+		// randoms from wandering into a preview.
+		if (doorEnabled(env) && !doorUnlocked(request, env)) {
 			if (path === '/health') {
 				return new Response('ok', { status: 200 })
 			}
@@ -103,11 +104,12 @@ function serveFrontend(env) {
 	const isDev = env.APP_ENV === 'dev'
 	// Dev worker tags the version badge with -dev so test builds are distinguishable.
 	const tag = isDev ? '-dev' : ''
-	// Test builds get a loud banner. Prod gets nothing — merge to main and it's gone.
+	// Every lane wears a ribbon: dev says TEST BUILD, official says COMING
+	// SOON — the sign Joun asked for until Heartline actually launches.
 	const banner = isDev
 		? '<div id="test-banner"><span class="tb-mark">TEST BUILD</span><span id="test-banner-ver"></span><span class="tb-note">changes may break · not the real chatroom</span></div>'
-		: ''
-	return new Response(FRONTEND.split('__APP_ENV_TAG__').join(tag).split('__TEST_BANNER__').join(banner), {
+		: '<div id="soon-banner"><span class="sb-mark">COMING SOON</span><span id="soon-banner-ver"></span><span class="sb-note">Heartline isn\'t ready for guests yet · preview build</span></div>'
+	return new Response(FRONTEND.split('__APP_ENV_TAG__').join(tag).split('__BANNER__').join(banner), {
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 			// The page changes with every deploy — never let an edge cache
@@ -118,22 +120,39 @@ function serveFrontend(env) {
 }
 
 // ---------------------------------------------------------------------------
-// TEST-BUILD DOOR — code lock for the dev worker (v0.7.0)
+// DOOR — code lock for both lanes (v0.8.0)
 // ---------------------------------------------------------------------------
 
-// The door cookie is the key. Prod never asks for it.
+function doorEnabled(env) {
+	return DOOR_ENABLED[env.APP_ENV] === true
+}
+
+function doorCode(env) {
+	return DOOR_CODES[env.APP_ENV] || null
+}
+
+// The door cookie is the key.
 function doorUnlocked(request, env) {
-	if (env.APP_ENV !== 'dev') return true
+	if (!doorEnabled(env)) return true
 	const cookies = request.headers.get('Cookie') || ''
 	return cookies.split(';').some(c => c.trim() === DOOR_COOKIE + '=' + DOOR_COOKIE_VALUE)
 }
 
 // The door page itself. Matches the app's light palette.
 function serveDoor(env) {
-	if (env.APP_ENV !== 'dev') {
+	if (!doorEnabled(env)) {
 		return new Response('Not found', { status: 404 })
 	}
-	return new Response(DOOR_HTML, {
+	const isDev = env.APP_ENV === 'dev'
+	// Dev keeps the test-lane copy; official wears the coming-soon sign.
+	return new Response(DOOR_HTML
+		.split('__DOOR_TAG__').join(isDev ? 'Heartline · TEST BUILD' : 'Heartline · coming soon')
+		.split('__DOOR_TITLE__').join(isDev ? 'Code locked' : 'Not ready yet')
+		.split('__DOOR_COPY__').join(isDev
+			? 'The test area is invite-only. Enter the door code to get in.'
+			: 'Heartline is still under construction. If you have the door code, come in and look around. Otherwise: soon.')
+		.split('__DOOR_FOOT__').join(isDev ? 'test build · not the real chatroom' : 'official build · preview only · coming soon')
+	, {
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 			'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -144,7 +163,7 @@ function serveDoor(env) {
 // Validate the door code, mint the cookie, bounce to the app.
 // Gentle brute-force guard: 5 failed tries per IP per minute via KV.
 async function handleDoorUnlock(request, env) {
-	if (env.APP_ENV !== 'dev') {
+	if (!doorEnabled(env)) {
 		return new Response('Not found', { status: 404 })
 	}
 	const ip = request.headers.get('CF-Connecting-IP') || 'anon'
@@ -156,7 +175,7 @@ async function handleDoorUnlock(request, env) {
 
 	const form = await request.formData()
 	const code = String(form.get('code') || '').trim()
-	if (code === DOOR_CODE) {
+	if (code === doorCode(env)) {
 		await env.ROOM_KV.delete(failKey)
 		return new Response(null, {
 			status: 302,
@@ -202,15 +221,15 @@ const DOOR_HTML = `<!DOCTYPE html>
 </head>
 <body>
   <div class="card">
-    <div class="tag">Heartline · TEST BUILD</div>
-    <h1>Code locked</h1>
-    <p>The test area is invite-only. Enter the door code to get in.</p>
+    <div class="tag">__DOOR_TAG__</div>
+    <h1>__DOOR_TITLE__</h1>
+    <p>__DOOR_COPY__</p>
     <form method="post" action="/door/unlock" autocomplete="off">
       <input name="code" inputmode="numeric" maxlength="12" placeholder="Door code" autofocus>
       <button type="submit">Unlock</button>
       <p class="err" id="err"></p>
     </form>
-    <div class="foot">test build · not the real chatroom</div>
+    <div class="foot">__DOOR_FOOT__</div>
   </div>
   <script>
     var e = new URLSearchParams(location.search)

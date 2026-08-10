@@ -34,14 +34,15 @@ export const REVIVE_DORMANT = false
 export const SHOW_CODE_INLINE = true
 
 // ---------------------------------------------------------------------------
-// Test-build door code (v0.7.0) — DEV WORKER ONLY.
+// Door codes (v0.8.0) — BOTH LANES are code-locked now.
 // ---------------------------------------------------------------------------
-// The test build is code-locked: every request to the dev worker must carry
-// the hl_door cookie, which only /door/unlock can mint. Prod never checks
-// this — the official build stays walkable. It's a polite door (anyone who
-// can read the worker source can find the code), not a vault: it keeps
-// randoms from wandering in, which is all a test lane needs.
-export const DOOR_CODE = '9119'
+// Every request to a locked worker must carry the hl_door cookie, which only
+// /door/unlock can mint. Dev and prod have their own codes (Joun picked
+// 1221 for the official, 9119 stays on the test build). It's a polite door
+// (anyone who can read the worker source can find the code), not a vault:
+// it keeps randoms from wandering into a preview.
+export const DOOR_ENABLED = { dev: true, prod: true }
+export const DOOR_CODES = { dev: '9119', prod: '1221' }
 export const DOOR_COOKIE = 'hl_door'
 export const DOOR_COOKIE_VALUE = 'open'
 // Failed attempts per IP before a 60s cooldown (5 tries/min).

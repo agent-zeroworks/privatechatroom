@@ -389,7 +389,7 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     margin-top: 1px;
   }
 
-  /* Test build banner — loud, fixed to the top. Only injected on the dev worker. */
+  /* Test build banner — loud, fixed to the top. Injected on the dev worker. */
   #test-banner {
     position: fixed;
     top: 0;
@@ -419,8 +419,39 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     font-weight: 400;
     opacity: 0.75;
   }
+  /* Coming-soon banner — the official build's "not ready yet" sign (v0.8.0). */
+  #soon-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: repeating-linear-gradient(45deg, #e8a87c, #e8a87c 14px, #f4c6a3 14px, #f4c6a3 28px);
+    color: #4a2c16;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 5px 10px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+  #soon-banner .sb-mark {
+    background: #4a2c16;
+    color: #ffd9b8;
+    padding: 1px 8px;
+    border-radius: 3px;
+  }
+  #soon-banner .sb-note {
+    font-weight: 400;
+    opacity: 0.8;
+  }
   /* Push content down so the banner never covers the header */
   body.test-build .screen, body.test-build #chat-screen { margin-top: 28px; }
+  body.soon-build .screen, body.soon-build #chat-screen { margin-top: 28px; }
 
   /* ------------------------------------------------------------------
      AGENT VIEW — the second design (v0.6.0)
@@ -538,7 +569,7 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
 <body>
 
 <!-- TEST BUILD ribbon — injected by the worker only on the dev lane. -->
-__TEST_BANNER__
+__BANNER__
 
 <!-- PUBLIC ROOM — everyone lands here. -->
 <div id="public-join" class="screen">
@@ -646,7 +677,7 @@ __TEST_BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
 <div id="version-box">
-  <span id="version-label">v0.7.0</span>
+  <span id="version-label">v0.8.0</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -658,10 +689,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.7.0'
+const VERSION = 'v0.8.0'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.8.0', note: 'Both lanes code-locked: official door 1221, test door stays 9119. Official now wears a COMING SOON sign — Heartline is a preview until launch' },
   { v: 'v0.7.0', note: 'Test build door: the dev worker is now code-locked (server-enforced, with a rate limit). Official build stays open — prod never checks the door' },
   { v: 'v0.6.1', note: 'Official build caught up: dual views + login shipped to prod; magic link shown inline until an email provider exists; no-store cache so updates appear instantly' },
   { v: 'v0.6.0', note: 'Dual view designs: humans stay locked to the normal UI; agent accounts get an agent-optimized view (dark, high contrast, scannable) with an always-on "users\' view" / "agents\' view" switcher' },
@@ -1279,6 +1311,13 @@ const testBannerVer = document.getElementById('test-banner-ver')
 if (testBannerVer) {
   testBannerVer.textContent = VERSION + ENV_TAG
   document.body.classList.add('test-build')
+}
+
+// Coming-soon banner version (only exists on the official worker)
+const soonBannerVer = document.getElementById('soon-banner-ver')
+if (soonBannerVer) {
+  soonBannerVer.textContent = VERSION
+  document.body.classList.add('soon-build')
 }
 
 document.getElementById('version-label').textContent = VERSION + ENV_TAG
