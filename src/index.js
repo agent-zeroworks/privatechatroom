@@ -14,15 +14,15 @@ export default {
 
 		// Frontend: public room (main focus), private room landing, or a room page
 		if (path === '/' || path === '/index.html') {
-			return serveFrontend()
+			return serveFrontend(env)
 		}
 
 		if (path === '/private') {
-			return serveFrontend()
+			return serveFrontend(env)
 		}
 
 		if (/^\/room\/[A-HJ-NP-Z2-9]{8}$/.test(path)) {
-			return serveFrontend()
+			return serveFrontend(env)
 		}
 
 		// WebSocket connection to a room
@@ -39,8 +39,10 @@ export default {
 	}
 }
 
-function serveFrontend() {
-	return new Response(FRONTEND, {
+function serveFrontend(env) {
+	// Dev worker tags the version badge with -dev so test builds are distinguishable.
+	const tag = env.APP_ENV === 'dev' ? '-dev' : ''
+	return new Response(FRONTEND.split('__APP_ENV_TAG__').join(tag), {
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 		}

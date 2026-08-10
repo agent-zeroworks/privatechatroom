@@ -2,7 +2,7 @@ name: Deploy Minx Chatroom
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 jobs:
@@ -14,7 +14,19 @@ jobs:
       - name: Run frontend checks
         run: npm ci && npm run check
 
-      - name: Deploy to Cloudflare Workers
+      # Testing lane: anything pushed to `dev` goes to the dev worker.
+      # Break things here freely — prod is never touched.
+      - name: Deploy dev worker (testing)
+        if: github.ref == 'refs/heads/dev'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env dev
+
+      # Official lane: only `main` reaches the real chatroom.
+      - name: Deploy production worker (official)
+        if: github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

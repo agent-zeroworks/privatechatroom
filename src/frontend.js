@@ -350,7 +350,7 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
 
 <!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
 <div id="version-box">
-  <span id="version-label">v0.2.1-dev</span>
+  <span id="version-label">v0.2.2</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -362,8 +362,10 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.2.1-dev'
+const VERSION = 'v0.2.2'
+const ENV_TAG = '__APP_ENV_TAG__'
 const VERSION_HISTORY = [
+  { v: 'v0.2.2', note: 'Dev/prod split: dev branch deploys to test worker, main is official; badge shows -dev on test builds' },
   { v: 'v0.2.1-dev', note: 'Version system: SemVer badge bottom-right, tap for history' },
   { v: 'v0.2.0-dev', note: 'Private rooms with codes, 24h message expiry, bare-bones UI' },
   { v: 'v0.1.0-dev', note: 'Initial prototype: public room chat' }
@@ -690,7 +692,7 @@ document.getElementById('code-input').addEventListener('input', function () {
 const versionBox = document.getElementById('version-box')
 const versionHistory = document.getElementById('version-history')
 
-document.getElementById('version-label').textContent = VERSION
+document.getElementById('version-label').textContent = VERSION + ENV_TAG
 VERSION_HISTORY.forEach(function (row) {
   const div = document.createElement('div')
   div.className = 'vrow'

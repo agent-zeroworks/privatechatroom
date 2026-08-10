@@ -37,12 +37,24 @@ npm run dev       # wrangler dev — local server with DO + SQLite
 
 ## Deploy
 
-```bash
-npm run deploy    # needs a Cloudflare API token with Workers Scripts: Edit
-```
+Two lanes, automated via GitHub Actions (push → auto-deploy):
 
-Or paste `src/index.js`, `src/chatroom.js`, `src/config.js`, `src/frontend.js`
-into the Cloudflare dashboard worker editor and deploy.
+| Branch | Worker | Use |
+|---|---|---|
+| `main` | `minx-chatroom` (prod) | The official chatroom. Only tested, stable code. |
+| `dev` | `minx-chatroom-dev` (test) | Experiments. Break things freely here. |
+
+- Push to `dev` → deploys to the test worker. Push to `main` → deploys to prod.
+- Dev and prod have **separate Durable Object storage** — rooms never collide.
+- The version badge shows `-dev` on test builds so you can tell them apart.
+- Merge `dev` into `main` when a change is stable enough for the real thing.
+
+Manual deploy (needs a Cloudflare API token with Workers Scripts: Edit):
+
+```bash
+npm run deploy               # prod
+npx wrangler deploy --env dev  # dev worker
+```
 
 **Always run `npm run check` before deploying** — it catches client-side
 syntax errors that would otherwise ship as a dead page.

@@ -2,17 +2,41 @@ name = "minx-chatroom"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
+# Which lane this worker is. Prod = official, dev = testing.
+[vars]
+APP_ENV = "prod"
+
 # Durable Object binding
 [[durable_objects.bindings]]
 name = "CHATROOM"
 class_name = "Chatroom"
 
-# KV namespace for room metadata (optional — keeps usernames/room info)
+# KV namespace for room metadata (optional — keeps usernames/room info).
+# NOTE: not used by the code yet. When it gets used, give dev its own
+# namespace instead of inheriting this one.
 [[kv_namespaces]]
 binding = "ROOM_KV"
 id = "3577df65fad44be298a0ff97dc567b5b"
 
 # Migration for the DO
 [[migrations]]
+tag = "v1"
+new_classes = ["Chatroom"]
+
+# ---- DEV ENVIRONMENT (testing lane) ----
+# Push to the `dev` branch → auto-deploys to minx-chatroom-dev.
+# Durable Object storage is scoped per worker script, so dev rooms are
+# fully isolated from prod. Same code, separate universe.
+[env.dev]
+name = "minx-chatroom-dev"
+
+[env.dev.vars]
+APP_ENV = "dev"
+
+[[env.dev.durable_objects.bindings]]
+name = "CHATROOM"
+class_name = "Chatroom"
+
+[[env.dev.migrations]]
 tag = "v1"
 new_classes = ["Chatroom"]
