@@ -17,5 +17,5 @@ export const CODE_RE = /^[A-HJ-NP-Z2-9]{8}$/
 //   1. set ROOM_LIFETIME_MS to null   (new rooms never expire)
 //   2. set REVIVE_DORMANT to true     (old dormant rooms wake on next visit)
 // No other code changes needed.
-export const ROOM_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000 // 1 week (placeholder)
+export const ROOM_LIFETIME_MS = 60 * 1000 // TEMP TEST: 60s TTL to verify dormancy
 export const REVIVE_DORMANT = false
