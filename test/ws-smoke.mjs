@@ -4,9 +4,10 @@
 
 const BASE = 'ws://127.0.0.1:8787/chat'
 
-function connect(room, username) {
+function connect(room, username, token) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(BASE + '?room=' + room + '&username=' + encodeURIComponent(username))
+    const url = BASE + '?room=' + room + '&username=' + encodeURIComponent(username) + (token ? '&token=' + token : '')
+    const ws = new WebSocket(url)
     const events = []
     const timers = []
     ws.onmessage = (e) => events.push(JSON.parse(e.data))
@@ -43,8 +44,33 @@ closeSocket(b.ws)
 await wait(300)
 
 // ---------- TEST 2: private room close-to-destroy ----------
+// Private rooms need a session (v0.3.0+): request a magic link, verify it,
+// then connect with the session token.
 console.log('TEST 2: private room close-to-destroy')
-let c = await connect('PRVTEST2', 'joun')
+
+async function getSession(email) {
+  const req = await fetch('http://127.0.0.1:8787/auth/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, nickname: 'joun' })
+  })
+  const reqData = await req.json()
+  const ver = await fetch('http://127.0.0.1:8787/auth/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code: reqData.devCode })
+  })
+  const verData = await ver.json()
+  if (!verData.session) throw new Error('no session: ' + JSON.stringify(verData))
+  return verData.session
+}
+
+const token = await getSession('smoketest@minx.local')
+function connectPrivate(room, t) {
+  return connect(room, 'joun', t)
+}
+
+let c = await connectPrivate('PRVTEST2', token)
 await wait(400)
 c.ws.send(JSON.stringify({ type: 'chat', text: 'secret message' }))
 await wait(500)
@@ -53,7 +79,7 @@ console.log('  chat echoed:', has(c.events, 'chat', 'secret message'))
 c.ws.send(JSON.stringify({ type: 'close' }))
 await wait(700)
 
-let d = await connect('PRVTEST2', 'joun-again')
+let d = await connectPrivate('PRVTEST2', token)
 await wait(500)
 const hist = d.events.find(e => e.type === 'history')
 console.log('  history after close (expect empty):', hist ? hist.messages.length : 'NO HISTORY EVENT')
@@ -62,16 +88,16 @@ await wait(300)
 
 // ---------- TEST 3: private room with two users, one closes, other stays ----------
 console.log('TEST 3: one of two closes, room survives')
-let e = await connect('SECRET99', 'alice')
+let e = await connectPrivate('SECRET99', token)
 await wait(300)
-let f = await connect('SECRET99', 'bob')
+let f = await connectPrivate('SECRET99', token)
 await wait(400)
 e.ws.send(JSON.stringify({ type: 'chat', text: 'are you there bob' }))
 await wait(400)
 f.ws.send(JSON.stringify({ type: 'close' }))   // bob closes, alice still in
 await wait(600)
 console.log('  alice still connected:', e.ws.readyState === WebSocket.OPEN)
-let g = await connect('SECRET99', 'carol')
+let g = await connectPrivate('SECRET99', token)
 await wait(500)
 console.log('  history survives (bob closed, alice in):', has(g.events, 'history', 'are you there bob'))
 closeSocket(e.ws)
@@ -79,7 +105,7 @@ closeSocket(g.ws)
 await wait(400)
 // now everyone gone but nobody sent close from alice... alice just disconnected.
 // alice never closed explicitly → closedBy is empty → room NOT destroyed
-let h = await connect('SECRET99', 'dave')
+let h = await connectPrivate('SECRET99', token)
 await wait(500)
 const hist2 = h.events.find(e2 => e2.type === 'history')
 console.log('  history after all gone w/o explicit close (persists):', hist2 ? hist2.messages.length : 'NO HISTORY')
@@ -87,21 +113,21 @@ closeSocket(h.ws)
 
 // ---------- TEST 4: destroy → reopen → destroy again (regression) ----------
 console.log('TEST 4: reopen after destroy can be destroyed again')
-let i = await connect('RETRY999', 'one')
+let i = await connectPrivate('RETRY999', token)
 await wait(300)
 i.ws.send(JSON.stringify({ type: 'chat', text: 'first life' }))
 await wait(400)
 i.ws.send(JSON.stringify({ type: 'close' }))
 await wait(600)
 
-let j = await connect('RETRY999', 'two')
+let j = await connectPrivate('RETRY999', token)
 await wait(400)
 j.ws.send(JSON.stringify({ type: 'chat', text: 'second life' }))
 await wait(400)
 j.ws.send(JSON.stringify({ type: 'close' }))
 await wait(600)
 
-let k = await connect('RETRY999', 'three')
+let k = await connectPrivate('RETRY999', token)
 await wait(400)
 const hist3 = k.events.find(e => e.type === 'history')
 console.log('  history after second close (expect empty):', hist3 ? hist3.messages.length : 'NO HISTORY')

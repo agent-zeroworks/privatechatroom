@@ -1,8 +1,10 @@
 // Minx's Chatroom — Durable Object
 // Manages real-time room state: messages, connected users, broadcast.
 // The public room (PUBLIC_ROOM) never dies; its history expires after 24h.
-// Private rooms live ROOM_LIFETIME_MS after first use, then the code goes
-// DORMANT: locked to new visitors, history preserved. No more dying on close.
+// Private rooms (PLACEHOLDER POLICY): during their first week they keep the
+// classic lifecycle — when every party closes the room, it deletes itself.
+// A room still alive ROOM_LIFETIME_MS after first use goes DORMANT: locked
+// to new visitors, history preserved, code reserved (the future rental pool).
 
 import { PUBLIC_ROOM, ROOM_LIFETIME_MS, REVIVE_DORMANT } from './config.js'
 
@@ -24,6 +26,8 @@ export class Chatroom {
 
 		// Connected WebSocket sessions: Map<webSocket, { username: string }>
 		this.sessions = new Map()
+		// Sockets that explicitly closed the room (private rooms only)
+		this.closedBy = new Set()
 		// Room metadata (private rooms): { created_at, expires_at } persisted
 		// to storage. expires_at = null means the room never expires.
 		this.meta = null
@@ -31,6 +35,7 @@ export class Chatroom {
 		// Public room: also pruned to the last 24 hours.
 		this.messages = []
 		this.loaded = false
+		this.destroyed = false
 	}
 
 	// Load room metadata from storage (private rooms only).
@@ -117,6 +122,10 @@ export class Chatroom {
 			// Accept the WebSocket
 			server.accept()
 
+			// A new connection resurrects the room — a code can be used again
+			// after everyone closed it, and it must be destroyable again too.
+			this.destroyed = false
+
 			// Load persisted history once (DOs hibernate between requests)
 			if (!this.loaded) {
 				this.messages = (await this.state.storage.get('messages')) || []
@@ -188,10 +197,20 @@ export class Chatroom {
 					}
 
 					if (data.type === 'close') {
-						// Closing is just leaving now — the room itself lives on
-						// until its week is up. The code stays joinable.
+						// User closed the room on their side. During the placeholder
+						// week this is the old classic lifecycle: a private room
+						// deletes itself once every party has closed it.
 						this.sessions.delete(server)
+						if (this.isPublic) {
+							// Public room: closing is just leaving — the room lives on
+							this.broadcastSystem(username + ' left')
+						} else {
+							this.closedBy.add(server)
+							this.broadcastSystem(username + ' closed the room')
+						}
+						this.broadcastOnlineCount()
 						server.close()
+						await this.maybeDestroy()
 					}
 				} catch (e) {
 					// Ignore bad messages
@@ -201,6 +220,11 @@ export class Chatroom {
 			// Handle disconnect (explicit close fires this too)
 			server.addEventListener('close', () => {
 				this.sessions.delete(server)
+				if (this.closedBy.has(server)) {
+					this.closedBy.delete(server)
+					this.maybeDestroy()
+					return
+				}
 				this.broadcastSystem(username + ' left')
 				this.broadcastOnlineCount()
 			})
@@ -226,8 +250,25 @@ export class Chatroom {
 		}
 	}
 
-	// Rooms never die by closing anymore. Private rooms sleep (dormant) a
-	// week after creation; public rooms are the house and never go away.
+	// If everyone has closed the room during its placeholder week, erase it —
+	// the code goes dead (a fresh visit starts a brand-new room). The public
+	// room is exempt: it is the house, it never goes away. A DORMANT room is
+	// exempt too: its history is preserved on purpose, it's reserved stock
+	// for the future rental model — sleeping rooms are never wiped.
+	async maybeDestroy() {
+		if (this.destroyed) return
+		if (this.isPublic) return
+		if (this.sessions.size > 0) return
+		if (this.closedBy.size === 0) return
+		if (await this.isDormant()) return
+
+		this.destroyed = true
+		await this.state.storage.deleteAll()
+		this.messages = []
+		// Drop the cached meta too: a revisit on this same instance must see a
+		// wiped room and stamp a fresh week, not a stale (possibly dormant) one.
+		this.meta = null
+	}
 
 	// Broadcast a message to all connected sessions
 	broadcast(data) {

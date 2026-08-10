@@ -460,9 +460,10 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.4.0'
+const VERSION = 'v0.4.1'
 const ENV_TAG = '__APP_ENV_TAG__'
 const VERSION_HISTORY = [
+  { v: 'v0.4.1', note: 'Lifecycle refined: during the week, private rooms keep the classic close-to-destroy (everyone closes → room deletes itself). Only rooms still alive at the week mark go dormant. Dormant rooms are reserved stock for future rentals' },
   { v: 'v0.4.0', note: 'Room lifecycle: private rooms live one week after first use, then the code goes dormant (locked, history kept). No more dying on close; config flip ready for real persistence' },
   { v: 'v0.3.0', note: 'Magic-link login: private rooms require a signed-in identity; test build shows the link on screen (no email provider yet)' },
   { v: 'v0.2.3', note: 'Test banner: loud TEST BUILD ribbon on the dev worker only; auto-gone in prod' },
@@ -774,10 +775,8 @@ function enterChat() {
     isPrivate ? 'Only people with the code can join' : 'Everyone lands here. No code needed.'
 
   document.getElementById('copy-header-btn').style.display = isPrivate ? '' : 'none'
-  // No more "Close room" — closing is just leaving now; the room lives its
-  // full week. One exit button for both.
-  document.getElementById('close-room-btn').style.display = 'none'
-  document.getElementById('leave-btn').style.display = ''
+  document.getElementById('close-room-btn').style.display = isPrivate ? '' : 'none'
+  document.getElementById('leave-btn').style.display = isPrivate ? 'none' : ''
 
   show('chat-screen')
   connect()
@@ -903,13 +902,25 @@ function deleteMessage(id) {
   ws.send(JSON.stringify({ type: 'delete', id: id }))
 }
 
-// leave — the room lives on either way
+// public room: just leave — the room lives on
 function leaveRoom() {
   leaving = true
   if (ws && ws.readyState === WebSocket.OPEN) ws.close()
   ws = null
   clearTimeout(reconnectTimer)
-  location.href = isPrivate ? '/private' : '/'
+  location.href = '/'
+}
+
+// private room: close it — during the placeholder week, when everyone's
+// gone the room dies with the code. Survives to the week mark? It sleeps.
+function closeRoom() {
+  leaving = true
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'close' }))
+  }
+  ws = null
+  clearTimeout(reconnectTimer)
+  location.href = '/private'
 }
 
 function setStatus(state, label) {
@@ -926,6 +937,7 @@ document.getElementById('create-btn').addEventListener('click', createRoom)
 document.getElementById('join-code-btn').addEventListener('click', joinByCode)
 document.getElementById('copy-btn').addEventListener('click', copyLink)
 document.getElementById('copy-header-btn').addEventListener('click', copyHeaderLink)
+document.getElementById('close-room-btn').addEventListener('click', closeRoom)
 document.getElementById('leave-btn').addEventListener('click', leaveRoom)
 document.getElementById('send-btn').addEventListener('click', sendMessage)
 document.getElementById('go-private').addEventListener('click', function () { location.href = '/private' })

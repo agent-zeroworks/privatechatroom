@@ -9,9 +9,12 @@ export const CODE_RE = /^[A-HJ-NP-Z2-9]{8}$/
 // ---------------------------------------------------------------------------
 // Private room lifecycle — TEMPORARY PLACEHOLDER POLICY
 // ---------------------------------------------------------------------------
-// A room created with the generate-code button lives ROOM_LIFETIME_MS after
-// its first use, then its code goes DORMANT: locked to new visitors, history
-// and identity preserved, ready to be revived later.
+// A room created with the generate-code button keeps the CLASSIC lifecycle
+// during its first week: when every party closes the room, it deletes
+// itself (history wiped, code reusable for a fresh room). A room that is
+// still alive ROOM_LIFETIME_MS after first use goes DORMANT instead:
+// locked to new visitors, history and identity preserved, code reserved —
+// that reserved pool is the future rental inventory.
 //
 // THE DAY REAL PERSISTENCE SHIPS — this is the whole activation:
 //   1. set ROOM_LIFETIME_MS to null   (new rooms never expire)
