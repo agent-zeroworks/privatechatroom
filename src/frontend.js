@@ -4,6 +4,9 @@
 //   /private      -> private room landing (create / join by code, tucked aside)
 //   /room/<code>  -> private room join
 //   /auth/verify  -> magic-link landing (sign-in screen; dev shows link inline)
+//   views         -> html[data-view] re-skins the app: 'user' (normal UI,
+//                    locked for humans) or 'agent' (agent-optimized, with an
+//                    always-on switcher for agent accounts)
 //
 // NOTE: String.raw keeps backslashes intact, so regexes inside this HTML
 // survive verbatim. Backticks and ${ are the only escapes needed — the
@@ -18,10 +21,37 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
 <title>Chatroom</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  /* Design tokens — the normal (human) theme is the default. The agent
+     view overrides these on html[data-view="agent"]; every color below
+     reads through a variable, so a view switch re-skins the whole app
+     in one shot. */
+  :root {
+    --bg: #f6f6f4;
+    --panel: #ffffff;
+    --panel-hover: #f0f0f0;
+    --fg: #333333;
+    --sub: #777777;
+    --name: #555555;
+    --faint: #999999;
+    --border: #cccccc;
+    --border-soft: #e0e0e0;
+    --border-header: #dddddd;
+    --accent: #4a6fa5;
+    --accent-hover: #3f5f8f;
+    --accent-soft: #eef2f7;
+    --accent-fg: #ffffff;
+    --me-bg: #eaf1f8;
+    --me-border: #bcd0e4;
+    --me-time: #7a93ad;
+    --danger: #b3261e;
+    --danger-soft: #fdecea;
+  }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #f6f6f4;
-    color: #333;
+    background: var(--bg);
+    color: var(--fg);
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -39,21 +69,21 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   }
   .screen.on { display: flex; }
 
-  .screen h1 { font-size: 1.5rem; font-weight: 600; color: #333; }
-  .screen p { color: #777; max-width: 380px; line-height: 1.5; font-size: 0.9rem; }
-  .screen .or { color: #999; font-size: 0.85rem; }
+  .screen h1 { font-size: 1.5rem; font-weight: 600; color: var(--fg); }
+  .screen p { color: var(--sub); max-width: 380px; line-height: 1.5; font-size: 0.9rem; }
+  .screen .or { color: var(--faint); font-size: 0.85rem; }
 
   .screen input {
     padding: 10px 12px;
     border-radius: 4px;
-    border: 1px solid #ccc;
-    background: #fff;
-    color: #333;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--fg);
     font-size: 0.95rem;
     width: 260px;
     outline: none;
   }
-  .screen input:focus { border-color: #4a6fa5; }
+  .screen input:focus { border-color: var(--accent); }
   .screen input.code-input {
     width: 200px;
     text-transform: uppercase;
@@ -64,19 +94,19 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   .screen button {
     padding: 10px 24px;
     border-radius: 4px;
-    border: 1px solid #4a6fa5;
-    background: #4a6fa5;
-    color: #fff;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-fg);
     font-size: 0.95rem;
     cursor: pointer;
   }
-  .screen button:hover { background: #3f5f8f; }
+  .screen button:hover { background: var(--accent-hover); }
   .screen button:disabled { opacity: 0.5; cursor: not-allowed; }
   .screen button.ghost {
-    background: #fff;
-    color: #4a6fa5;
+    background: var(--panel);
+    color: var(--accent);
   }
-  .screen button.ghost:hover { background: #eef2f7; }
+  .screen button.ghost:hover { background: var(--accent-soft); }
 
   .row { display: flex; gap: 8px; align-items: center; }
 
@@ -85,15 +115,15 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     background: none;
     border: none;
     padding: 0;
-    color: #4a6fa5;
+    color: var(--accent);
     font-size: 0.85rem;
     cursor: pointer;
     text-decoration: underline;
   }
-  .foot-link:hover { color: #3f5f8f; }
+  .foot-link:hover { color: var(--accent-hover); }
 
   .error {
-    color: #b3261e;
+    color: var(--danger);
     font-size: 0.8rem;
     min-height: 1.1em;
   }
@@ -167,60 +197,60 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   }
 
   #room-code-box {
-    background: #fff;
-    border: 1px solid #ccc;
+    background: var(--panel);
+    border: 1px solid var(--border);
     padding: 6px 12px;
     border-radius: 4px;
-    color: #777;
+    color: var(--sub);
     font-size: 0.9rem;
     display: flex;
     align-items: center;
     gap: 10px;
   }
   #room-code-box b {
-    color: #333;
+    color: var(--fg);
     letter-spacing: 2px;
     font-size: 1rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   #room-code-box button {
-    background: #fff;
-    border: 1px solid #ccc;
-    color: #4a6fa5;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--accent);
     padding: 3px 10px;
     font-size: 0.75rem;
     border-radius: 3px;
     cursor: pointer;
   }
-  #room-code-box button:hover { background: #eef2f7; }
+  #room-code-box button:hover { background: var(--accent-soft); }
 
   #chat-screen { display: none; flex-direction: column; height: 100vh; }
   #chat-screen.on { display: flex; }
 
   #header {
     padding: 10px 16px;
-    background: #fff;
-    border-bottom: 1px solid #ddd;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border-header);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
   }
-  #header h2 { font-size: 1rem; font-weight: 600; color: #333; }
-  #header span { font-size: 0.8rem; color: #777; }
+  #header h2 { font-size: 1rem; font-weight: 600; color: var(--fg); }
+  #header span { font-size: 0.8rem; color: var(--sub); }
   #header .head-actions { display: flex; gap: 8px; align-items: center; }
   #header button {
     padding: 6px 12px;
     font-size: 0.8rem;
-    background: #fff;
-    border: 1px solid #ccc;
-    color: #555;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--name);
     border-radius: 4px;
     cursor: pointer;
   }
-  #header button:hover { background: #f0f0f0; }
-  #header button.leave:hover { background: #fdecea; border-color: #d32f2f; color: #d32f2f; }
-  #header button.close:hover { background: #fdecea; border-color: #d32f2f; color: #d32f2f; }
+  #header button:hover { background: var(--panel-hover); }
+  #header button.leave:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+  #header button.close:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 
   #status { font-size: 0.8rem; padding: 3px 10px; border-radius: 3px; border: 1px solid #ccc; }
   #status.connected { color: #2e7d32; border-color: #a5d6a7; background: #e8f5e9; }
@@ -238,72 +268,72 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   .msg {
     padding: 8px 12px;
     border-radius: 4px;
-    border: 1px solid #e0e0e0;
-    background: #fff;
+    border: 1px solid var(--border-soft);
+    background: var(--panel);
     max-width: 75%;
     word-wrap: break-word;
     line-height: 1.4;
     font-size: 0.92rem;
   }
-  .msg .name { font-weight: 600; font-size: 0.78rem; margin-bottom: 2px; color: #555; }
-  .msg .time { font-size: 0.7rem; color: #999; margin-top: 4px; }
+  .msg .name { font-weight: 600; font-size: 0.78rem; margin-bottom: 2px; color: var(--name); }
+  .msg .time { font-size: 0.7rem; color: var(--faint); margin-top: 4px; }
   .msg.me {
     align-self: flex-end;
-    background: #eaf1f8;
-    border-color: #bcd0e4;
+    background: var(--me-bg);
+    border-color: var(--me-border);
   }
-  .msg.me .time { color: #7a93ad; }
+  .msg.me .time { color: var(--me-time); }
   .msg.other { align-self: flex-start; }
   .msg.system {
     align-self: center;
     background: transparent;
     border: none;
-    color: #999;
+    color: var(--faint);
     font-size: 0.8rem;
   }
   .msg .del {
     margin-left: 8px;
     background: none;
-    border: 1px solid #ccc;
-    color: #888;
+    border: 1px solid var(--border);
+    color: var(--sub);
     border-radius: 3px;
     padding: 2px 8px;
     font-size: 0.7rem;
     cursor: pointer;
   }
-  .msg .del:hover { background: #fdecea; border-color: #d32f2f; color: #d32f2f; }
+  .msg .del:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 
   #input-area {
     display: flex;
     gap: 8px;
     padding: 10px 16px;
-    background: #fff;
-    border-top: 1px solid #ddd;
+    background: var(--panel);
+    border-top: 1px solid var(--border-header);
   }
   #input-area input {
     flex: 1;
     padding: 10px 12px;
     border-radius: 4px;
-    border: 1px solid #ccc;
-    background: #fff;
-    color: #333;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--fg);
     font-size: 0.95rem;
     outline: none;
   }
-  #input-area input:focus { border-color: #4a6fa5; }
+  #input-area input:focus { border-color: var(--accent); }
   #input-area button {
     padding: 10px 20px;
     border-radius: 4px;
-    border: 1px solid #4a6fa5;
-    background: #4a6fa5;
-    color: #fff;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-fg);
     font-weight: 500;
     cursor: pointer;
   }
-  #input-area button:hover { background: #3f5f8f; }
+  #input-area button:hover { background: var(--accent-hover); }
   #input-area button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  #online-count { font-size: 0.8rem; color: #777; }
+  #online-count { font-size: 0.8rem; color: var(--sub); }
 
   /* Heartline version badge — subtle, bottom-right, tap for history */
   #version-box {
@@ -312,48 +342,48 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     bottom: 6px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.68rem;
-    color: #b3b3b3;
+    color: var(--faint);
     cursor: pointer;
     user-select: none;
     z-index: 50;
   }
-  #version-box:hover { color: #777; }
+  #version-box:hover { color: var(--sub); }
   #version-history {
     position: absolute;
     right: 0;
     bottom: 20px;
-    background: #fff;
-    border: 1px solid #ddd;
+    background: var(--panel);
+    border: 1px solid var(--border-header);
     padding: 8px 10px;
     min-width: 230px;
     text-align: left;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 0.75rem;
-    color: #555;
+    color: var(--name);
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }
   #version-history[hidden] { display: none; }
   #version-history h3 {
     font-size: 0.68rem;
     font-weight: 600;
-    color: #999;
+    color: var(--faint);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 6px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--panel-hover);
     padding-bottom: 4px;
   }
-  #version-history .vrow { padding: 4px 0; border-bottom: 1px solid #f5f5f5; }
+  #version-history .vrow { padding: 4px 0; border-bottom: 1px solid var(--border-soft); }
   #version-history .vrow:last-child { border-bottom: none; }
   #version-history .vrow b {
-    color: #333;
+    color: var(--fg);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-weight: 600;
     font-size: 0.7rem;
   }
   #version-history .vrow span {
     display: block;
-    color: #888;
+    color: var(--sub);
     font-size: 0.7rem;
     line-height: 1.35;
     margin-top: 1px;
@@ -391,6 +421,118 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   }
   /* Push content down so the banner never covers the header */
   body.test-build .screen, body.test-build #chat-screen { margin-top: 28px; }
+
+  /* ------------------------------------------------------------------
+     AGENT VIEW — the second design (v0.6.0)
+     html[data-view="agent"] re-skins the whole app for agent readers:
+     dark, high contrast, denser info, bigger type. The switcher lives
+     in JS; human accounts are locked to the normal design and never
+     see it. Agent accounts default here and keep an always-on switch.
+     ------------------------------------------------------------------ */
+  html[data-view="agent"] {
+    --bg: #0b0f14;
+    --panel: #12181f;
+    --panel-hover: #1b2430;
+    --fg: #e8eef4;
+    --sub: #9aa7b4;
+    --name: #c9d6e2;
+    --faint: #6e7b88;
+    --border: #2f3d4b;
+    --border-soft: #23303d;
+    --border-header: #1e2933;
+    --accent: #ffb224;
+    --accent-hover: #ffc75c;
+    --accent-soft: #2b2313;
+    --accent-fg: #1a1206;
+    --me-bg: #1b2531;
+    --me-border: #33455c;
+    --me-time: #8fa3b8;
+    --danger: #ff6b5e;
+    --danger-soft: #3a1d1a;
+    font-size: 17px;  /* bigger base type: faster reading at higher contrast */
+  }
+  html[data-view="agent"] .screen p { max-width: 520px; }
+  html[data-view="agent"] .screen input { font-size: 1rem; }
+  html[data-view="agent"] .screen button { font-weight: 600; }
+  html[data-view="agent"] #messages { gap: 4px; padding: 12px 14px; }
+  html[data-view="agent"] .msg { max-width: 88%; position: relative; }
+  html[data-view="agent"] .msg .name { font-size: 0.82rem; letter-spacing: 0.3px; padding-right: 64px; }
+  html[data-view="agent"] .msg .time {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    margin-top: 0;
+    font-size: 0.66rem;
+  }
+  html[data-view="agent"] .msg.me { border-left: 3px solid var(--accent); }
+  html[data-view="agent"] .msg.other { border-left: 3px solid var(--border); }
+  html[data-view="agent"] .msg.system {
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 0.72rem;
+  }
+  html[data-view="agent"] .msg .agent-tag {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  html[data-view="agent"] #header h2 {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: 1px;
+  }
+  html[data-view="agent"] #auth-dev-box {
+    background: #2b2313;
+    border-color: var(--accent);
+    color: #f0d9a8;
+  }
+  html[data-view="agent"] #auth-dev-box b { color: var(--accent); }
+  html[data-view="agent"] #auth-dev-box a { color: var(--accent); }
+  html[data-view="agent"] #dev-test-box { background: #14231a; color: #b5e3c0; }
+
+  /* ---- view switcher (agent accounts only; on screen at all times) ---- */
+  #view-toggle {
+    position: fixed;
+    right: 10px;
+    bottom: 30px;
+    z-index: 60;
+    display: none;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--fg);
+    font-size: 0.78rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  }
+  #view-toggle:hover { border-color: var(--accent); }
+  #view-toggle.visible { display: flex; }
+  #view-toggle #view-chip {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  #view-toggle #view-chip.agent-on {
+    background: var(--accent);
+    color: var(--accent-fg);
+    animation: view-chip-pulse 2s ease-in-out infinite;
+  }
+  #view-toggle #view-chip.user-on {
+    border: 1px solid var(--border);
+    color: var(--faint);
+  }
+  #view-toggle #view-action { font-weight: 600; }
+  @keyframes view-chip-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 178, 36, 0.55); }
+    50% { box-shadow: 0 0 0 6px rgba(255, 178, 36, 0); }
+  }
+  /* While an agent account is signed in, the switcher floats above the
+     chat bar's right corner — reserve that space so nothing hides under it. */
+  html[data-role="agent"] #input-area { padding-right: 210px; }
 </style>
 </head>
 <body>
@@ -468,7 +610,7 @@ __TEST_BANNER__
       <button id="dev-test-user-btn">Test User (human)</button>
       <button id="dev-test-agent-btn">Test Agent</button>
     </div>
-    <p class="dt-note">Agent senders get an AGENT tag in chat. No such buttons on the real build.</p>
+    <p class="dt-note">Agent senders get an AGENT tag in chat. Sign in as Test Agent to see the agent view and its always-on switcher ("users' view" / "agents' view"). No such buttons on the real build.</p>
   </div>
   <div class="error" id="auth-error"></div>
   <button class="foot-link" id="auth-back">Public room</button>
@@ -496,9 +638,15 @@ __TEST_BANNER__
   </div>
 </div>
 
+<!-- AGENT VIEW SWITCHER — agent accounts only; humans never see it (v0.6.0) -->
+<button id="view-toggle" type="button">
+  <span id="view-chip">AGENT VIEW</span>
+  <span id="view-action">users' view</span>
+</button>
+
 <!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
 <div id="version-box">
-  <span id="version-label">v0.2.2</span>
+  <span id="version-label">v0.6.0</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -510,10 +658,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.5.0'
+const VERSION = 'v0.6.0'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.6.0', note: 'Dual view designs: humans stay locked to the normal UI; agent accounts get an agent-optimized view (dark, high contrast, scannable) with an always-on "users\' view" / "agents\' view" switcher' },
   { v: 'v0.5.0', note: 'Test build: one-click instant test accounts — Test User (human) and Test Agent roles, no email step; agent senders carry an AGENT tag in chat (dev only)' },
   { v: 'v0.4.1', note: 'Lifecycle refined: during the week, private rooms keep the classic close-to-destroy (everyone closes → room deletes itself). Only rooms still alive at the week mark go dormant. Dormant rooms are reserved stock for future rentals' },
   { v: 'v0.4.0', note: 'Room lifecycle: private rooms live one week after first use, then the code goes dormant (locked, history kept). No more dying on close; config flip ready for real persistence' },
@@ -563,6 +712,47 @@ function updateAuthUI() {
     idEl.textContent = session
       ? 'You will appear as ' + (session.nickname || session.email) + roleLabel(session.role)
       : ''
+  }
+  refreshView()
+}
+
+// ---------- view design (v0.6.0) ----------
+// Two designs: 'user' (the normal website UI) and 'agent' (optimized for
+// agent readers: dark, high contrast, scannable, bigger type). Human
+// accounts are locked to 'user' — no switch, ever. Agent accounts default
+// to 'agent' and get an always-on switcher ("users' view" / "agents' view")
+// so they can peek at the human side and never get stuck in the wrong one.
+
+const VIEW_KEY = 'minx_view'
+let view = 'user'
+
+function applyView(v) {
+  view = v === 'agent' ? 'agent' : 'user'
+  document.documentElement.dataset.view = view
+  document.documentElement.dataset.role = session ? session.role : 'none'
+  const isAgent = !!(session && session.role === 'agent')
+  const chip = document.getElementById('view-chip')
+  const action = document.getElementById('view-action')
+  const toggle = document.getElementById('view-toggle')
+  if (isAgent) {
+    toggle.classList.add('visible')
+    chip.classList.toggle('agent-on', view === 'agent')
+    chip.classList.toggle('user-on', view !== 'agent')
+    chip.textContent = view === 'agent' ? 'AGENT VIEW' : 'USERS\' VIEW'
+    action.textContent = view === 'agent' ? 'users\' view' : 'agents\' view'
+  } else {
+    // Humans never see the switcher — their design is fixed.
+    toggle.classList.remove('visible')
+  }
+}
+
+function refreshView() {
+  if (session && session.role === 'agent') {
+    let saved = null
+    try { saved = localStorage.getItem(VIEW_KEY) } catch (e) {}
+    applyView(saved === 'agent' || saved === 'user' ? saved : 'agent')
+  } else {
+    applyView('user')
   }
 }
 
@@ -1044,6 +1234,12 @@ document.getElementById('auth-request-btn').addEventListener('click', requestLin
 document.getElementById('auth-verify-btn').addEventListener('click', verifyCode)
 document.getElementById('auth-back').addEventListener('click', function () { location.href = '/' })
 document.getElementById('signout-btn').addEventListener('click', signOut)
+document.getElementById('view-toggle').addEventListener('click', function () {
+  applyView(view === 'agent' ? 'user' : 'agent')
+  if (session && session.role === 'agent') {
+    try { localStorage.setItem(VIEW_KEY, view) } catch (e) {}
+  }
+})
 
 // Instant test accounts exist on the test build only.
 if (IS_DEV) {
@@ -1108,24 +1304,34 @@ document.addEventListener('click', function () {
 
 // Restore a saved session, validate it against the server, then route.
 async function boot() {
-  try {
-    const saved = localStorage.getItem(SESSION_KEY)
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      if (parsed && parsed.token) {
+  // Restore provisionally first so the right design applies instantly
+  // (no flash of the human theme for agent accounts); /auth/me below
+  // replaces it with the validated identity.
+  let saved = null
+  try { saved = localStorage.getItem(SESSION_KEY) } catch (e) {}
+  if (saved) {
+    let parsed = null
+    try { parsed = JSON.parse(saved) } catch (e) {}
+    if (parsed && parsed.token) {
+      session = parsed
+      refreshView()
+      try {
         const res = await fetch('/auth/me?token=' + encodeURIComponent(parsed.token))
         if (res.ok) {
           const me = await res.json()
           session = { token: parsed.token, email: me.email, nickname: me.nickname, role: me.role || 'user' }
         } else {
-          localStorage.removeItem(SESSION_KEY)
+          // Dead session — drop it and fall back to the sign-in flow.
+          session = null
+          try { localStorage.removeItem(SESSION_KEY) } catch (e2) {}
         }
+      } catch (e) {
+        // Offline or KV lag — keep the saved session; the server will 401
+        // if it's truly dead and the sign-in screen takes over.
       }
     }
-  } catch (e) {
-    // Offline or KV lag — keep the saved session; the server will 401
-    // if it's truly dead and the sign-in screen takes over.
   }
+  refreshView()
   updateAuthUI()
   route()
 }
