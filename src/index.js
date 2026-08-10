@@ -75,6 +75,9 @@ function serveFrontend(env) {
 	return new Response(FRONTEND.split('__APP_ENV_TAG__').join(tag).split('__TEST_BANNER__').join(banner), {
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
+			// The page changes with every deploy — never let an edge cache
+			// serve a stale build.
+			'Cache-Control': 'no-store, no-cache, must-revalidate',
 		}
 	})
 }
