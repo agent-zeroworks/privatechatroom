@@ -33,10 +33,19 @@ name = "minx-chatroom-dev"
 [env.dev.vars]
 APP_ENV = "dev"
 
+# KV is not inherited by environments — declared explicitly.
+# Same namespace as prod for now (unused by the code); give dev its own
+# namespace the day it actually gets used.
+[[env.dev.kv_namespaces]]
+binding = "ROOM_KV"
+id = "3577df65fad44be298a0ff97dc567b5b"
+
 [[env.dev.durable_objects.bindings]]
 name = "CHATROOM"
 class_name = "Chatroom"
 
+# New namespaces on the free plan require new_sqlite_classes.
+# (Prod keeps new_classes — its namespace already exists and can't convert.)
 [[env.dev.migrations]]
 tag = "v1"
-new_classes = ["Chatroom"]
+new_sqlite_classes = ["Chatroom"]
