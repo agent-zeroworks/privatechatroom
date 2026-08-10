@@ -32,3 +32,18 @@ export const REVIVE_DORMANT = false
 // wire the provider in handleAuthRequest — the link gets emailed instead
 // of displayed. The test-account endpoint stays dev-only regardless.
 export const SHOW_CODE_INLINE = true
+
+// ---------------------------------------------------------------------------
+// Test-build door code (v0.7.0) — DEV WORKER ONLY.
+// ---------------------------------------------------------------------------
+// The test build is code-locked: every request to the dev worker must carry
+// the hl_door cookie, which only /door/unlock can mint. Prod never checks
+// this — the official build stays walkable. It's a polite door (anyone who
+// can read the worker source can find the code), not a vault: it keeps
+// randoms from wandering in, which is all a test lane needs.
+export const DOOR_CODE = '9119'
+export const DOOR_COOKIE = 'hl_door'
+export const DOOR_COOKIE_VALUE = 'open'
+// Failed attempts per IP before a 60s cooldown (5 tries/min).
+export const DOOR_MAX_ATTEMPTS = 5
+export const DOOR_WINDOW_S = 60

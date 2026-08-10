@@ -12,7 +12,7 @@
 // inline on the sign-in screen instead of being emailed.
 
 import { Chatroom } from './chatroom.js'
-import { PUBLIC_ROOM, CODE_RE, SHOW_CODE_INLINE } from './config.js'
+import { PUBLIC_ROOM, CODE_RE, SHOW_CODE_INLINE, DOOR_CODE, DOOR_COOKIE, DOOR_COOKIE_VALUE, DOOR_MAX_ATTEMPTS, DOOR_WINDOW_S } from './config.js'
 import { FRONTEND } from './frontend.js'
 
 // Magic code: 6 digits, single use, 10 minutes.
@@ -28,6 +28,28 @@ export default {
 	async fetch(request, env) {
 		const url = new URL(request.url)
 		const path = url.pathname
+
+		// Door routes first so they work whether or not the visitor is unlocked.
+		// On prod these are plain 404s.
+		if (path === '/door' && request.method === 'GET') {
+			return serveDoor(env)
+		}
+		if (path === '/door/unlock' && request.method === 'POST') {
+			return handleDoorUnlock(request, env)
+		}
+
+		// TEST-BUILD DOOR (v0.7.0): the dev worker is code-locked. Every
+		// request without the door cookie gets sent to /door. Prod never
+		// checks this — the official build stays open by design.
+		if (env.APP_ENV === 'dev' && !doorUnlocked(request, env)) {
+			if (path === '/health') {
+				return new Response('ok', { status: 200 })
+			}
+			// Browsers get bounced to the door; API/WS callers get a flat 403.
+			return request.method === 'GET' || request.method === 'HEAD'
+				? Response.redirect(new URL('/door', request.url).toString(), 302)
+				: new Response('Locked', { status: 403 })
+		}
 
 		// Auth endpoints (magic-link login)
 		if (path === '/auth/request' && request.method === 'POST') {
@@ -96,8 +118,107 @@ function serveFrontend(env) {
 }
 
 // ---------------------------------------------------------------------------
+// TEST-BUILD DOOR — code lock for the dev worker (v0.7.0)
+// ---------------------------------------------------------------------------
+
+// The door cookie is the key. Prod never asks for it.
+function doorUnlocked(request, env) {
+	if (env.APP_ENV !== 'dev') return true
+	const cookies = request.headers.get('Cookie') || ''
+	return cookies.split(';').some(c => c.trim() === DOOR_COOKIE + '=' + DOOR_COOKIE_VALUE)
+}
+
+// The door page itself. Matches the app's light palette.
+function serveDoor(env) {
+	if (env.APP_ENV !== 'dev') {
+		return new Response('Not found', { status: 404 })
+	}
+	return new Response(DOOR_HTML, {
+		headers: {
+			'Content-Type': 'text/html;charset=UTF-8',
+			'Cache-Control': 'no-store, no-cache, must-revalidate',
+		}
+	})
+}
+
+// Validate the door code, mint the cookie, bounce to the app.
+// Gentle brute-force guard: 5 failed tries per IP per minute via KV.
+async function handleDoorUnlock(request, env) {
+	if (env.APP_ENV !== 'dev') {
+		return new Response('Not found', { status: 404 })
+	}
+	const ip = request.headers.get('CF-Connecting-IP') || 'anon'
+	const failKey = kvKey(env, 'door:fail', ip)
+	const fails = Number(await env.ROOM_KV.get(failKey)) || 0
+	if (fails >= DOOR_MAX_ATTEMPTS) {
+		return Response.redirect(new URL('/door?e=2', request.url).toString(), 302)
+	}
+
+	const form = await request.formData()
+	const code = String(form.get('code') || '').trim()
+	if (code === DOOR_CODE) {
+		await env.ROOM_KV.delete(failKey)
+		return new Response(null, {
+			status: 302,
+			headers: {
+				'Location': new URL('/', request.url).toString(),
+				'Set-Cookie': DOOR_COOKIE + '=' + DOOR_COOKIE_VALUE + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000'
+			}
+		})
+	}
+
+	await env.ROOM_KV.put(failKey, String(fails + 1), { expirationTtl: DOOR_WINDOW_S })
+	return Response.redirect(new URL('/door?e=1', request.url).toString(), 302)
+}
+
+// ---------------------------------------------------------------------------
 // Auth — magic-link login
 // ---------------------------------------------------------------------------
+
+// The door page. Plain string on purpose: no template-literal hazards,
+// nothing to fetch, nothing to cache.
+const DOOR_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heartline · test build</title>
+<style>
+  :root { --bg:#f6f6f4; --panel:#ffffff; --fg:#333333; --sub:#777777; --border:#cccccc; --accent:#4a6fa5; --accent-hover:#3f5f8f; --danger:#b3261e; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color:var(--fg); }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:36px 40px; width:340px; box-shadow:0 10px 30px rgba(0,0,0,0.06); }
+  .tag { font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--sub); margin-bottom:6px; }
+  h1 { font-size:22px; margin:0 0 8px; }
+  p { font-size:14px; color:var(--sub); margin:0 0 20px; line-height:1.5; }
+  form { display:flex; flex-direction:column; gap:10px; }
+  input { padding:11px 12px; font-size:16px; border:1px solid var(--border); border-radius:8px; letter-spacing:0.2em; text-align:center; }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { padding:11px; font-size:15px; font-weight:600; background:var(--accent); color:#fff; border:none; border-radius:8px; cursor:pointer; }
+  button:hover { background:var(--accent-hover); }
+  .err { font-size:13px; color:var(--danger); margin:8px 0 0; min-height:18px; }
+  .foot { font-size:11px; color:#aaaaaa; margin-top:18px; text-align:center; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="tag">Heartline · TEST BUILD</div>
+    <h1>Code locked</h1>
+    <p>The test area is invite-only. Enter the door code to get in.</p>
+    <form method="post" action="/door/unlock" autocomplete="off">
+      <input name="code" inputmode="numeric" maxlength="12" placeholder="Door code" autofocus>
+      <button type="submit">Unlock</button>
+      <p class="err" id="err"></p>
+    </form>
+    <div class="foot">test build · not the real chatroom</div>
+  </div>
+  <script>
+    var e = new URLSearchParams(location.search)
+    if (e.get('e') === '1') document.getElementById('err').textContent = 'Wrong code, try again'
+    if (e.get('e') === '2') document.getElementById('err').textContent = 'Too many tries. Wait a minute.'
+  </script>
+</body>
+</html>`
 
 function json(data, status = 200) {
 	return new Response(JSON.stringify(data), {
