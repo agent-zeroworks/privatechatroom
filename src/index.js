@@ -479,8 +479,11 @@ async function handleWebSocket(request, env) {
 	// tag=agent on the WS URL overrides the display role on the test
 	// build only; the official build ignores the param entirely, so the
 	// "no self-assigned agent tag" rule still holds in prod.
+	// The tag is forwarded to the DO SEPARATELY from the role, so a
+	// mid-room clear restores the account's true role (not the tagged one).
+	let tagParam = ''
 	if (env.APP_ENV === 'dev' && url.searchParams.get('tag') === 'agent') {
-		role = 'agent'
+		tagParam = '&tag=agent'
 	}
 
 	const id = env.CHATROOM.idFromName('room-' + room)
@@ -488,7 +491,7 @@ async function handleWebSocket(request, env) {
 
 	// Forward to the Durable Object for WebSocket upgrade
 	return await stub.fetch(
-		new Request('http://internal/websocket?room=' + encodeURIComponent(room) + '&username=' + encodeURIComponent(username) + '&role=' + encodeURIComponent(role), {
+		new Request('http://internal/websocket?room=' + encodeURIComponent(room) + '&username=' + encodeURIComponent(username) + '&role=' + encodeURIComponent(role) + tagParam, {
 			headers: { 'Upgrade': 'websocket' }
 		})
 	)

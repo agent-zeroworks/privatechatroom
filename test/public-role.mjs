@@ -113,6 +113,17 @@ await wait(500)
 const onTagged = tagged.events.find(e => e.type === 'chat' && e.text === 'tagged message')
 check('sender keeps their own name', onTagged && onTagged.sender === 'CuriousCat', onTagged && onTagged.sender)
 check('role is agent (tag applied)', onTagged && onTagged.role === 'agent', onTagged && onTagged.role)
+
+// Clearing must restore the BASE role (user) even though this connection
+// OPENED with tag=agent — the tag is an overlay, not the identity.
+tagged.ws.send(JSON.stringify({ type: 'tag', tag: '' }))
+await wait(400)
+const clearAck = tagged.events.find(e => e.type === 'tag_ack')
+check('clear ack restores user', clearAck && clearAck.role === 'user', clearAck && clearAck.role)
+tagged.ws.send(JSON.stringify({ type: 'chat', text: 'after clear on tagged conn' }))
+await wait(400)
+const afterClear = tagged.events.find(e => e.type === 'chat' && e.text === 'after clear on tagged conn')
+check('role back to user after clear', afterClear && afterClear.role === 'user', afterClear && afterClear.role)
 closeSocket(tagged.ws)
 await wait(300)
 

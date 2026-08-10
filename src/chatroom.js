@@ -121,6 +121,12 @@ export class Chatroom {
 			// Role rides along from the auth layer ('user' | 'agent'); the
 			// public room never sends one, so it defaults to user.
 			const role = url.searchParams.get('role') || 'user'
+			// v0.8.3 — dev test tag, forwarded separately (dev-gated in
+			// index.js). The tag overlays the base role; the base role is
+			// remembered so a mid-room clear restores the account's true
+			// role instead of the tagged one.
+			const testTag = url.searchParams.get('tag') === 'agent' ? 'agent' : null
+			const effectiveRole = testTag ? 'agent' : role
 
 			// Accept the WebSocket
 			server.accept()
@@ -139,7 +145,7 @@ export class Chatroom {
 			await this.pruneExpired()
 
 			// Store the session
-			this.sessions.set(server, { username, role })
+			this.sessions.set(server, { username, role: effectiveRole, baseRole: role })
 
 			// Send chat history to the new user
 			server.send(JSON.stringify({
@@ -166,7 +172,7 @@ export class Chatroom {
 							type: 'chat',
 							id: crypto.randomUUID(),
 							sender: username,
-							role: sess ? sess.role : role,
+							role: sess ? sess.role : effectiveRole,
 							text: data.text.trim(),
 							ts: Date.now()
 						}
@@ -187,11 +193,12 @@ export class Chatroom {
 					// v0.8.3 — dev-only test tag: flip your display tag live.
 					// Honored only on the test build; prod ignores the message.
 					// 'agent' sets the tag, anything else restores the role the
-					// connection opened with (the account's real role).
+					// connection opened with BEFORE the tag (the account's true
+					// role — tracked separately as baseRole).
 					if (data.type === 'tag' && this.env.APP_ENV === 'dev') {
 						const sess = this.sessions.get(server)
 						if (!sess) return
-						sess.role = data.tag === 'agent' ? 'agent' : role
+						sess.role = data.tag === 'agent' ? 'agent' : sess.baseRole
 						server.send(JSON.stringify({ type: 'tag_ack', role: sess.role }))
 					}
 
