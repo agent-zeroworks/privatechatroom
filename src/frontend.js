@@ -289,9 +289,45 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     line-height: 1.35;
     margin-top: 1px;
   }
+
+  /* Test build banner — loud, fixed to the top. Only injected on the dev worker. */
+  #test-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: repeating-linear-gradient(45deg, #ffb020, #ffb020 14px, #ffc94d 14px, #ffc94d 28px);
+    color: #5a3a00;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 5px 10px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+  #test-banner .tb-mark {
+    background: #5a3a00;
+    color: #ffd98a;
+    padding: 1px 8px;
+    border-radius: 3px;
+  }
+  #test-banner .tb-note {
+    font-weight: 400;
+    opacity: 0.75;
+  }
+  /* Push content down so the banner never covers the header */
+  body.test-build .screen, body.test-build #chat-screen { margin-top: 28px; }
 </style>
 </head>
 <body>
+
+<!-- TEST BUILD ribbon — injected by the worker only on the dev lane. -->
+__TEST_BANNER__
 
 <!-- PUBLIC ROOM — everyone lands here. -->
 <div id="public-join" class="screen">
@@ -362,9 +398,10 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.2.2'
+const VERSION = 'v0.2.3'
 const ENV_TAG = '__APP_ENV_TAG__'
 const VERSION_HISTORY = [
+  { v: 'v0.2.3', note: 'Test banner: loud TEST BUILD ribbon on the dev worker only; auto-gone in prod' },
   { v: 'v0.2.2', note: 'Dev/prod split: dev branch deploys to test worker, main is official; badge shows -dev on test builds' },
   { v: 'v0.2.1-dev', note: 'Version system: SemVer badge bottom-right, tap for history' },
   { v: 'v0.2.0-dev', note: 'Private rooms with codes, 24h message expiry, bare-bones UI' },
@@ -691,6 +728,13 @@ document.getElementById('code-input').addEventListener('input', function () {
 
 const versionBox = document.getElementById('version-box')
 const versionHistory = document.getElementById('version-history')
+
+// Test banner version (only exists on the dev worker)
+const testBannerVer = document.getElementById('test-banner-ver')
+if (testBannerVer) {
+  testBannerVer.textContent = VERSION + ENV_TAG
+  document.body.classList.add('test-build')
+}
 
 document.getElementById('version-label').textContent = VERSION + ENV_TAG
 VERSION_HISTORY.forEach(function (row) {

@@ -40,9 +40,14 @@ export default {
 }
 
 function serveFrontend(env) {
+	const isDev = env.APP_ENV === 'dev'
 	// Dev worker tags the version badge with -dev so test builds are distinguishable.
-	const tag = env.APP_ENV === 'dev' ? '-dev' : ''
-	return new Response(FRONTEND.split('__APP_ENV_TAG__').join(tag), {
+	const tag = isDev ? '-dev' : ''
+	// Test builds get a loud banner. Prod gets nothing — merge to main and it's gone.
+	const banner = isDev
+		? '<div id="test-banner"><span class="tb-mark">TEST BUILD</span><span id="test-banner-ver"></span><span class="tb-note">changes may break · not the real chatroom</span></div>'
+		: ''
+	return new Response(FRONTEND.split('__APP_ENV_TAG__').join(tag).split('__TEST_BANNER__').join(banner), {
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 		}
