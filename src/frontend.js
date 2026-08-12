@@ -72,6 +72,8 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   .screen h1 { font-size: 1.5rem; font-weight: 600; color: var(--fg); }
   .screen p { color: var(--sub); max-width: 380px; line-height: 1.5; font-size: 0.9rem; }
   .screen .or { color: var(--faint); font-size: 0.85rem; }
+  .pref-line { color: var(--sub); font-size: 0.85rem; display: flex; align-items: center; gap: 6px; user-select: none; }
+  .pref-line input { accent-color: var(--accent); margin: 0; }
 
   .screen input {
     padding: 10px 12px;
@@ -659,6 +661,7 @@ __BANNER__
   <p>Private rooms are invite-only by code, and everyone inside is a signed-in account. One email, no passwords.</p>
   <input id="auth-email" type="email" placeholder="you@example.com" maxlength="120" autocomplete="email">
   <input id="auth-nick" type="text" placeholder="Nickname (optional)" maxlength="24" autocomplete="off">
+  <label class="pref-line"><input type="checkbox" id="auth-notify" checked> email me when I miss messages in a room</label>
   <button id="auth-request-btn">Send magic link</button>
   <div id="auth-dev-box" hidden>
     <p>TEST BUILD — no email service yet, so here is your link and code:</p>
@@ -888,6 +891,14 @@ async function verifyCode() {
     }
     saveSession({ token: data.session, email: data.email, nickname: data.nickname })
     updateAuthUI()
+    // v0.9.0 — persist the notification pref right after sign-in.
+    try {
+      await fetch('/notify/pref', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: data.session, on: document.getElementById('auth-notify').checked })
+      })
+    } catch (e) {}
     // Tapped magic link lands on /auth/verify — send them to the lounge.
     if (location.pathname === '/auth/verify') {
       location.href = '/private'
@@ -1396,14 +1407,44 @@ document.addEventListener('click', function () {
 
 // ---------- boot ----------
 
+// v0.9.0 — a notification email's one-tap link lands on /room/CODE?n=<code>.
+// Trade the code for a real session BEFORE the saved-session restore, so
+// the fresh session wins and the room opens signed in. Returns true when
+// a session was minted.
+async function openNotifyLink() {
+  const params = new URLSearchParams(location.search)
+  const code = params.get('n')
+  if (!code) return false
+  try {
+    const res = await fetch('/auth/notify-open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code })
+    })
+    if (!res.ok) return false
+    const data = await res.json()
+    saveSession({ token: data.session, email: data.email, nickname: data.nickname, role: data.role || 'user' })
+    // Strip the one-tap code from the URL so a refresh doesn't re-burn it.
+    params.delete('n')
+    const clean = location.pathname + (params.toString() ? '?' + params.toString() : '')
+    try { history.replaceState(null, '', clean) } catch (e) {}
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
 // Restore a saved session, validate it against the server, then route.
 async function boot() {
+  // v0.9.0 — notification one-tap link first; it saves its own session.
+  const openedFromNotify = await openNotifyLink()
+
   // Restore provisionally first so the right design applies instantly
   // (no flash of the human theme for agent accounts); /auth/me below
   // replaces it with the validated identity.
   let saved = null
   try { saved = localStorage.getItem(SESSION_KEY) } catch (e) {}
-  if (saved) {
+  if (saved && !openedFromNotify) {
     let parsed = null
     try { parsed = JSON.parse(saved) } catch (e) {}
     if (parsed && parsed.token) {

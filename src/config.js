@@ -31,7 +31,29 @@ export const REVIVE_DORMANT = false
 // usable today). THE DAY AN EMAIL PROVIDER SHIPS: set this to false and
 // wire the provider in handleAuthRequest — the link gets emailed instead
 // of displayed. The test-account endpoint stays dev-only regardless.
+//
+// v0.9.0: the moment a RESEND_API_KEY secret exists, magic links are
+// emailed automatically (SHOW_CODE_INLINE only applies when there is no
+// key). One provider, two jobs: magic links AND away-notifications.
 export const SHOW_CODE_INLINE = true
+
+// ---------------------------------------------------------------------------
+// Away-notifications (v0.9.0) — flag-gated, inert until a provider ships.
+// ---------------------------------------------------------------------------
+// When a message lands in a room and a signed-in member isn't connected,
+// the server holds a digest and emails it after a quiet window. Scarce by
+// design: never per-message, never more than one email per recipient per
+// room within NOTIFY_MIN_GAP_MS. With NOTIFY_ENABLED=false the digest is
+// built and logged (dry run) but nothing is sent.
+//
+// THE DAY EMAIL SHIPS (Resend): add the RESEND_API_KEY secret + set
+// NOTIFY_ENABLED=true. That's it — the digest machinery is already live.
+export const NOTIFY_ENABLED = false
+export const NOTIFY_DIGEST_WAIT_MS = 5 * 60 * 1000   // hold unread ~5 min before emailing
+export const NOTIFY_MIN_GAP_MS = 30 * 60 * 1000      // min gap between emails per recipient
+export const NOTIFY_CODE_TTL_S = 7 * 24 * 3600       // one-tap link lives a week
+export const NOTIFY_FROM_NAME = 'Heartline'
+export const NOTIFY_FROM_EMAIL = 'heartline@thegreateater0.dev' // placeholder until a domain is verified
 
 // ---------------------------------------------------------------------------
 // Door codes (v0.8.0) — BOTH LANES are code-locked now.

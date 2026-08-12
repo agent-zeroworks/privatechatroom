@@ -6,7 +6,8 @@
 // A room still alive ROOM_LIFETIME_MS after first use goes DORMANT: locked
 // to new visitors, history preserved, code reserved (the future rental pool).
 
-import { PUBLIC_ROOM, ROOM_LIFETIME_MS, REVIVE_DORMANT } from './config.js'
+import { PUBLIC_ROOM, ROOM_LIFETIME_MS, REVIVE_DORMANT, NOTIFY_DIGEST_WAIT_MS, NOTIFY_MIN_GAP_MS, NOTIFY_CODE_TTL_S } from './config.js'
+import { sendEmail } from './email.js'
 
 // Public rooms forget messages older than 24 hours.
 const HISTORY_TTL_MS = 24 * 60 * 60 * 1000
@@ -24,8 +25,16 @@ export class Chatroom {
 		this.roomCode = idName.replace(/^room-/, '')
 		this.isPublic = this.roomCode === PUBLIC_ROOM
 
-		// Connected WebSocket sessions: Map<webSocket, { username: string }>
+		// Connected WebSocket sessions: Map<webSocket, { username, role, baseRole, email }>
 		this.sessions = new Map()
+		// Members registry (private rooms only): email -> { nickname, firstSeen, origin }
+		// Persisted, so the room knows who belongs even while everyone is away.
+		this.members = null
+		// Pending away-digests: email -> { count, lastSender, lastPreview, firstTs }
+		// Persisted so a hibernated DO wakes to its own unread mail. The
+		// min-gap clock (lastSentAt) lives on the MEMBER record instead —
+		// digest entries die after flush, members persist.
+		this.pendingDigests = null
 		// Sockets that explicitly closed the room (private rooms only)
 		this.closedBy = new Set()
 		// Room metadata (private rooms): { created_at, expires_at } persisted
@@ -121,6 +130,11 @@ export class Chatroom {
 			// Role rides along from the auth layer ('user' | 'agent'); the
 			// public room never sends one, so it defaults to user.
 			const role = url.searchParams.get('role') || 'user'
+			// v0.9.0 — identity for notifications. The email comes ONLY from
+			// the auth layer (never from client input), and the origin is the
+			// public URL of this worker so digest links point somewhere real.
+			const email = (url.searchParams.get('email') || '').trim().toLowerCase()
+			const origin = url.searchParams.get('origin') || ''
 			// v0.8.3 — dev test tag, forwarded separately (dev-gated in
 			// index.js). The tag overlays the base role; the base role is
 			// remembered so a mid-room clear restores the account's true
@@ -145,7 +159,18 @@ export class Chatroom {
 			await this.pruneExpired()
 
 			// Store the session
-			this.sessions.set(server, { username, role: effectiveRole, baseRole: role })
+			this.sessions.set(server, { username, role: effectiveRole, baseRole: role, email })
+
+			// v0.9.0 — remember the member (private rooms only). The first time
+			// an identity signs into a room, the room learns they belong here;
+			// from then on, messages while they're away become digest emails.
+			if (!this.isPublic && email) {
+				await this.loadMembers()
+				if (!this.members.has(email)) {
+					this.members.set(email, { nickname: username, firstSeen: Date.now(), origin })
+					await this.state.storage.put('members', [...this.members.entries()])
+				}
+			}
 
 			// Send chat history to the new user
 			server.send(JSON.stringify({
@@ -188,6 +213,11 @@ export class Chatroom {
 						await this.pruneExpired()
 						// Broadcast to all
 						this.broadcast(msg)
+						// v0.9.0 — anyone who belongs here but isn't connected gets
+						// queued for a digest email.
+						if (!this.isPublic) {
+							await this.queueDigests(msg)
+						}
 					}
 
 					// v0.8.3 — dev-only test tag: flip your display tag live.
@@ -293,6 +323,116 @@ export class Chatroom {
 		// Drop the cached meta too: a revisit on this same instance must see a
 		// wiped room and stamp a fresh week, not a stale (possibly dormant) one.
 		this.meta = null
+		this.members = null
+		this.pendingDigests = null
+	}
+
+	// -----------------------------------------------------------------------
+	// v0.9.0 — away-notifications (digest emails)
+	// -----------------------------------------------------------------------
+
+	async loadMembers() {
+		if (this.members) return
+		const raw = await this.state.storage.get('members')
+		this.members = new Map(raw || [])
+	}
+
+	async loadDigests() {
+		if (this.pendingDigests) return
+		const raw = await this.state.storage.get('pendingDigests')
+		this.pendingDigests = new Map(raw || [])
+	}
+
+	// Queue a digest entry for every member who isn't connected right now,
+	// then make sure an alarm is standing by to flush it. Scarce by design:
+	// one entry per recipient, count grows, email goes out once per window.
+	async queueDigests(msg) {
+		await this.loadMembers()
+		await this.loadDigests()
+		if (this.members.size === 0) return
+
+		const connected = new Set()
+		for (const [, s] of this.sessions) {
+			if (s.email) connected.add(s.email)
+		}
+
+		const now = Date.now()
+		let changed = false
+		for (const [email, m] of this.members) {
+			if (connected.has(email)) continue
+			const d = this.pendingDigests.get(email) || { count: 0, lastSender: '', lastPreview: '', firstTs: 0 }
+			d.count += 1
+			d.lastSender = msg.sender
+			d.lastPreview = msg.text.slice(0, 120)
+			if (!d.firstTs) d.firstTs = now
+			this.pendingDigests.set(email, d)
+			changed = true
+		}
+
+		if (!changed) return
+		await this.state.storage.put('pendingDigests', [...this.pendingDigests.entries()])
+		const existing = await this.state.storage.getAlarm()
+		if (existing === null) {
+			await this.state.storage.setAlarm(now + NOTIFY_DIGEST_WAIT_MS)
+		}
+	}
+
+	// DO alarm — flush digests that are past their quiet window. Respects the
+	// min-gap: an active room can't spam someone, it just holds the next
+	// digest until the gap is up.
+	async alarm() {
+		if (this.isPublic) return
+		await this.loadDigests()
+		if (this.pendingDigests.size === 0) return
+
+		const now = Date.now()
+		for (const [email, d] of this.pendingDigests) {
+			if (d.count === 0) continue
+			const member = this.members.get(email)
+			// Min-gap: the clock is the member's last email time. Undefined
+			// (never emailed) reads as NaN → comparison false → sends.
+			if (member && now - member.lastSentAt < NOTIFY_MIN_GAP_MS) continue
+			await this.sendDigestEmail(email, d)
+			if (member) {
+				member.lastSentAt = now
+			}
+			d.count = 0
+			d.lastSender = ''
+			d.lastPreview = ''
+			d.firstTs = 0
+		}
+
+		const still = [...this.pendingDigests.entries()].filter(([, d]) => d.count > 0)
+		this.pendingDigests = new Map(still)
+		await this.state.storage.put('pendingDigests', still)
+		// Members changed (lastSentAt stamps) — persist.
+		await this.state.storage.put('members', [...this.members.entries()])
+		if (still.length > 0) {
+			await this.state.storage.setAlarm(now + NOTIFY_MIN_GAP_MS)
+		}
+	}
+
+	// Build + send one digest email. Honours the per-account pref (default
+	// on). The one-tap link mints a fresh session, so the recipient lands
+	// inside the room signed in — no code to type.
+	async sendDigestEmail(email, d) {
+		const pref = await this.env.ROOM_KV.get(`${this.env.APP_ENV}:notify:pref:${email}`)
+		if (pref === '0') return
+
+		const member = this.members.get(email) || {}
+		const origin = member.origin || 'https://minx-chatroom.thegreateater0.workers.dev'
+		const code = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+		await this.env.ROOM_KV.put(
+			`${this.env.APP_ENV}:notify:${code}`,
+			JSON.stringify({ email, room: this.roomCode, nickname: member.nickname || email, role: 'user' }),
+			{ expirationTtl: NOTIFY_CODE_TTL_S }
+		)
+
+		const link = `${origin}/room/${this.roomCode}?n=${code}`
+		const plural = d.count === 1 ? 'message' : 'messages'
+		const subject = `💌 ${this.roomCode} — ${d.count} new ${plural} from ${d.lastSender}`
+		const html = `<p><b>${d.lastSender}</b> said:</p><p style="padding:10px 14px;background:#f6f0e7;border-radius:8px;color:#333">${escapeHtml(d.lastPreview)}</p><p>${d.count} new ${plural} waiting in room <b>${this.roomCode}</b>.</p><p><a href="${link}" style="background:#c77b52;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Open room</a></p><p style="color:#999;font-size:12px">One tap signs you in. You can turn these off in the sign-in panel.</p>`
+		await sendEmail(this.env, { to: email, subject, html, kind: 'notify' })
 	}
 
 	// Broadcast a message to all connected sessions
@@ -320,6 +460,11 @@ export class Chatroom {
 			count: this.sessions.size
 		})
 	}
+}
+
+// Tiny escape so message previews can't inject HTML into digest emails.
+function escapeHtml(s) {
+	return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 // Small JSON helper (module-scope so both the DO and future handlers use it).

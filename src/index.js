@@ -13,6 +13,7 @@
 
 import { Chatroom } from './chatroom.js'
 import { PUBLIC_ROOM, CODE_RE, SHOW_CODE_INLINE, DOOR_ENABLED, DOOR_CODES, DOOR_COOKIE, DOOR_COOKIE_VALUE, DOOR_MAX_ATTEMPTS, DOOR_WINDOW_S } from './config.js'
+import { sendEmail } from './email.js'
 import { FRONTEND } from './frontend.js'
 
 // Magic code: 6 digits, single use, 10 minutes.
@@ -76,6 +77,15 @@ export default {
 		}
 		if (path === '/auth/me') {
 			return handleAuthMe(request, env)
+		}
+		// v0.9.0 — one-tap open from a notification email: trades the notify
+		// link for a real session, then the frontend drops into the room.
+		if (path === '/auth/notify-open' && request.method === 'POST') {
+			return handleNotifyOpen(request, env)
+		}
+		// v0.9.0 — per-account notification pref (default on).
+		if (path === '/notify/pref' && request.method === 'POST') {
+			return handleNotifyPref(request, env)
 		}
 		// TEST BUILD ONLY: instant test accounts, one click, no email step.
 		if (path === '/auth/dev-test' && request.method === 'POST') {
@@ -330,10 +340,20 @@ async function handleAuthRequest(request, env) {
 	// Magic-link delivery: with SHOW_CODE_INLINE on (no email provider yet),
 	// the link is returned inline and the frontend shows it on screen. The
 	// day a provider is added, flip the flag and email the link instead.
-	if (SHOW_CODE_INLINE) {
-		const origin = new URL(request.url).origin
-		const devLink = origin + '/auth/verify?code=' + code + '&email=' + encodeURIComponent(email)
-		return json({ ok: true, dev: true, devLink, devCode: code })
+	// v0.9.0: the key's presence decides — if RESEND_API_KEY exists the link
+	// is emailed; a failed send falls back to inline so login never bricks.
+	const origin = new URL(request.url).origin
+	const verifyLink = origin + '/auth/verify?code=' + code + '&email=' + encodeURIComponent(email)
+	if (SHOW_CODE_INLINE && !env.RESEND_API_KEY) {
+		return json({ ok: true, dev: true, devLink: verifyLink, devCode: code })
+	}
+	const sent = await sendEmail(env, {
+		to: email,
+		subject: 'Your Heartline sign-in code: ' + code,
+		html: `<p>Your sign-in code is <b>${code}</b>.</p><p><a href="${verifyLink}">Open Heartline</a> (or enter the code on the sign-in screen).</p><p style="color:#999;font-size:12px">Code expires in 10 minutes.</p>`
+	})
+	if (!sent && SHOW_CODE_INLINE) {
+		return json({ ok: true, dev: true, devLink: verifyLink, devCode: code })
 	}
 	return json({ ok: true, dev: false })
 }
@@ -408,6 +428,47 @@ async function handleAuthLogout(request, env) {
 	return json({ ok: true })
 }
 
+// v0.9.0 — the one-tap link from a notification email. The code is
+// single-use and maps to { email, room }; trading it mints a real session
+// exactly like the magic-link flow, so the recipient is signed in the
+// moment the room page loads. No code to type, no email to enter.
+async function handleNotifyOpen(request, env) {
+	const body = await readBody(request)
+	const code = String(body.code || '').trim()
+	if (!code) {
+		return json({ ok: false, error: 'Missing link' }, 400)
+	}
+	const raw = await env.ROOM_KV.get(kvKey(env, 'notify', code))
+	if (!raw) {
+		return json({ ok: false, error: 'Wrong or expired link' }, 401)
+	}
+	const rec = JSON.parse(raw)
+	// Single use — burn it.
+	await env.ROOM_KV.delete(kvKey(env, 'notify', code))
+
+	const session = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '')
+	const role = rec.role || 'user'
+	await env.ROOM_KV.put(
+		kvKey(env, 'session', session),
+		JSON.stringify({ email: rec.email, nickname: rec.nickname || rec.email.split('@')[0], role }),
+		{ expirationTtl: SESSION_TTL_S }
+	)
+	return json({ ok: true, session, email: rec.email, nickname: rec.nickname || rec.email.split('@')[0], role, room: rec.room })
+}
+
+// v0.9.0 — per-account notification pref. Stored without a TTL: a tiny
+// key, and a lingering pref after an account dies is harmless.
+async function handleNotifyPref(request, env) {
+	const body = await readBody(request)
+	const user = await sessionUser(env, body.token)
+	if (!user) {
+		return json({ ok: false }, 401)
+	}
+	const on = body.on === true
+	await env.ROOM_KV.put(kvKey(env, 'notify:pref', user.email), on ? '1' : '0')
+	return json({ ok: true, on })
+}
+
 async function handleAuthMe(request, env) {
 	const token = new URL(request.url).searchParams.get('token')
 	const user = await sessionUser(env, token)
@@ -454,9 +515,10 @@ async function handleWebSocket(request, env) {
 	// no name spoofing behind a code.
 	let username
 	let role = 'user'
+	let user = null
 	if (room === PUBLIC_ROOM) {
 		const token = url.searchParams.get('token')
-		const user = token ? await sessionUser(env, token) : null
+		user = token ? await sessionUser(env, token) : null
 		if (user) {
 			username = user.nickname || user.email
 			role = user.role || 'user'
@@ -464,7 +526,7 @@ async function handleWebSocket(request, env) {
 			username = url.searchParams.get('username') || 'Anonymous'
 		}
 	} else {
-		const user = await sessionUser(env, url.searchParams.get('token'))
+		user = await sessionUser(env, url.searchParams.get('token'))
 		if (!user) {
 			return new Response('Not signed in', { status: 401 })
 		}
@@ -486,12 +548,22 @@ async function handleWebSocket(request, env) {
 		tagParam = '&tag=agent'
 	}
 
+	// v0.9.0 — identity rides to the DO for notifications. Server-derived
+	// only: the email comes from the session record, never the client. The
+	// origin is this worker's public URL, so digest links point somewhere
+	// reachable from the outside.
+	let emailParam = ''
+	if (user) {
+		emailParam = '&email=' + encodeURIComponent(user.email)
+	}
+	const originParam = '&origin=' + encodeURIComponent(new URL(request.url).origin)
+
 	const id = env.CHATROOM.idFromName('room-' + room)
 	const stub = env.CHATROOM.get(id)
 
 	// Forward to the Durable Object for WebSocket upgrade
 	return await stub.fetch(
-		new Request('http://internal/websocket?room=' + encodeURIComponent(room) + '&username=' + encodeURIComponent(username) + '&role=' + encodeURIComponent(role) + tagParam, {
+		new Request('http://internal/websocket?room=' + encodeURIComponent(room) + '&username=' + encodeURIComponent(username) + '&role=' + encodeURIComponent(role) + originParam + emailParam + tagParam, {
 			headers: { 'Upgrade': 'websocket' }
 		})
 	)

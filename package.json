@@ -7,7 +7,8 @@
 	"scripts": {
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy",
-		"check": "node scripts/check-frontend.mjs"
+		"check": "node scripts/check-frontend.mjs",
+		"test:digests": "node scripts/test-digests.mjs"
 	},
 	"devDependencies": {
 		"wrangler": "^4.118.0"
