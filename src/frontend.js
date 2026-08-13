@@ -362,6 +362,7 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     z-index: 50;
   }
   #version-box:hover { color: var(--sub); }
+  /* v0.10.1 — compact changelog window: ~4 rows visible, scrollable */
   #version-history {
     position: absolute;
     left: 0;
@@ -370,6 +371,10 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     border: 1px solid var(--border-header);
     padding: 8px 10px;
     min-width: 230px;
+    max-width: 300px;
+    max-height: 150px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     text-align: left;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 0.75rem;
@@ -707,7 +712,7 @@ __BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-LEFT, tap for history (v0.10.0) -->
 <div id="version-box">
-  <span id="version-label">v0.10.0</span>
+  <span id="version-label">v0.10.1</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -723,10 +728,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.10.0'
+const VERSION = 'v0.10.1'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.10.1', note: 'Version panel: newest entries at the bottom, compact window (~4 rows) that scrolls' },
   { v: 'v0.10.0', note: 'Blank main screen. Secret door: tiny blank square button bottom-right opens private rooms; version badge moved bottom-left. Real persistence: private room chats save forever and rooms only open to people with the code. No more wipe-on-close' },
   { v: 'v0.9.0', note: 'Away-notifications: digest emails when you miss messages in a room, one-tap link signs you back in; per-account on/off pref' },
   { v: 'v0.8.3', note: 'Test buttons are tag-only now: Test Agent just adds the AGENT tag to your messages — no account, no name swap, no redirect. Works in the public room AND private rooms; toggle from the landing page, the private room join screen, or the chat header. Dev only' },
@@ -1377,7 +1383,8 @@ if (soonBannerVer) {
 }
 
 document.getElementById('version-label').textContent = VERSION + ENV_TAG
-VERSION_HISTORY.forEach(function (row) {
+// v0.10.1 — changelog order: oldest at the top, newest at the bottom.
+VERSION_HISTORY.slice().reverse().forEach(function (row) {
   const div = document.createElement('div')
   div.className = 'vrow'
   const b = document.createElement('b')
@@ -1392,6 +1399,10 @@ VERSION_HISTORY.forEach(function (row) {
 versionBox.addEventListener('click', function (e) {
   e.stopPropagation()
   versionHistory.hidden = !versionHistory.hidden
+  if (!versionHistory.hidden) {
+    // v0.10.1 — open scrolled to the newest entry (bottom of the list).
+    versionHistory.scrollTop = versionHistory.scrollHeight
+  }
 })
 document.addEventListener('click', function () {
   versionHistory.hidden = true
