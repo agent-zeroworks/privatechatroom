@@ -177,7 +177,7 @@ export class Chatroom {
 				try {
 					const data = JSON.parse(event.data)
 
-					if (data.type === 'chat' && data.text && data.text.trim()) {
+					if (data.type === 'chat' && ((data.text && data.text.trim()) || (data.image && typeof data.image.url === 'string'))) {
 						// Read the role from the live session record so a
 						// mid-room tag flip (v0.8.3) shows on the next message.
 						const sess = this.sessions.get(server)
@@ -186,9 +186,18 @@ export class Chatroom {
 							id: crypto.randomUUID(),
 							sender: username,
 							role: sess ? sess.role : effectiveRole,
-							text: data.text.trim(),
+							text: (data.text || '').trim(),
 							ts: Date.now()
 						}
+						// v0.11.0 — photos. Only same-origin /img/ URLs minted by
+						// /upload are accepted, so rooms can't smuggle arbitrary
+						// links in (no tracking pixels, no external embeds).
+						if (data.image && /^\/img\/[A-Za-z0-9-]+\.[a-z0-9]+$/.test(data.image.url)) {
+							msg.image = { url: data.image.url, name: String(data.image.name || '').slice(0, 60) }
+						}
+						// An image that fails validation leaves nothing to show —
+						// don't store an empty bubble.
+						if (!msg.text && !msg.image) return
 
 						// Store in history (persisted so it survives hibernation)
 						this.messages.push(msg)
@@ -317,7 +326,9 @@ export class Chatroom {
 			const d = this.pendingDigests.get(email) || { count: 0, lastSender: '', lastPreview: '', firstTs: 0 }
 			d.count += 1
 			d.lastSender = msg.sender
-			d.lastPreview = msg.text.slice(0, 120)
+			// v0.11.0 — photo messages preview as [photo] so a caption-less
+			// image still reads as something in the email.
+			d.lastPreview = (msg.image ? '[photo] ' : '') + msg.text.slice(0, 120)
 			if (!d.firstTs) d.firstTs = now
 			this.pendingDigests.set(email, d)
 			changed = true

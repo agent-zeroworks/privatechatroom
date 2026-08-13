@@ -322,6 +322,31 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   }
   .msg .del:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 
+  /* v0.11.0 — photos in chat. Thumbnail inside the bubble; tap opens full size. */
+  .msg .photo {
+    display: block;
+    max-width: 220px;
+    max-height: 220px;
+    border-radius: 6px;
+    margin-top: 6px;
+    border: 1px solid var(--border);
+    cursor: zoom-in;
+    object-fit: cover;
+  }
+
+  #img-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 1rem;
+    cursor: pointer;
+    color: var(--sub);
+    flex-shrink: 0;
+  }
+  #img-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  #img-btn:disabled { opacity: 0.4; cursor: default; }
+
   #input-area {
     display: flex;
     gap: 8px;
@@ -707,7 +732,9 @@ __BANNER__
   <div id="messages"></div>
   <div id="input-area">
     <input id="msg-input" type="text" placeholder="Type a message" maxlength="500" autocomplete="off" disabled>
+    <button id="img-btn" type="button" title="Send a photo" disabled>🖼</button>
     <button id="send-btn" disabled>Send</button>
+    <input type="file" id="img-file" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
   </div>
 </div>
 
@@ -719,7 +746,7 @@ __BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-LEFT, tap for history (v0.10.0) -->
 <div id="version-box">
-  <span id="version-label">v0.10.2</span>
+  <span id="version-label">v0.11.0</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -735,11 +762,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.10.2'
+const VERSION = 'v0.11.0'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
-  { v: 'v0.10.2', note: 'Page scroll locked: screens fit the phone viewport exactly (100dvh), banner clearance no longer overflows — the site itself never scrolls or bounces' },
+  { v: 'v0.11.0', note: 'Photos in private rooms: the 🖼 button uploads an image straight into the chat (tap it for full size). Door code is 4386 on both lanes now — one number for the whole club' },
   { v: 'v0.10.1', note: 'Version panel: newest entries at the bottom, compact window (~4 rows) that scrolls' },
   { v: 'v0.10.0', note: 'Blank main screen. Secret door: tiny blank square button bottom-right opens private rooms; version badge moved bottom-left. Real persistence: private room chats save forever and rooms only open to people with the code. No more wipe-on-close' },
   { v: 'v0.9.0', note: 'Away-notifications: digest emails when you miss messages in a room, one-tap link signs you back in; per-account on/off pref' },
@@ -1173,6 +1200,7 @@ function connect() {
     setStatus('connected', 'Connected')
     document.getElementById('msg-input').disabled = false
     document.getElementById('send-btn').disabled = false
+    document.getElementById('img-btn').disabled = false
     document.getElementById('msg-input').focus()
   }
 
@@ -1180,6 +1208,7 @@ function connect() {
     setStatus('disconnected', 'Disconnected')
     document.getElementById('msg-input').disabled = true
     document.getElementById('send-btn').disabled = true
+    document.getElementById('img-btn').disabled = true
     if (leaving) return
     reconnectTimer = setTimeout(function () { connect() }, 3000)
   }
@@ -1204,7 +1233,7 @@ function handleMessage(data) {
       break
 
     case 'chat':
-      addMessage(data.sender, data.text, data.sender === username ? 'me' : 'other', data.id, data.ts, data.role)
+      addMessage(data.sender, data.text, data.sender === username ? 'me' : 'other', data.id, data.ts, data.role, data.image)
       break
 
     case 'online_count':
@@ -1213,7 +1242,7 @@ function handleMessage(data) {
 
     case 'history':
       data.messages.forEach(function (m) {
-        addMessage(m.sender, m.text, m.sender === username ? 'me' : 'other', m.id, m.ts, m.role)
+        addMessage(m.sender, m.text, m.sender === username ? 'me' : 'other', m.id, m.ts, m.role, m.image)
       })
       scrollToBottom()
       break
@@ -1225,7 +1254,7 @@ function handleMessage(data) {
   }
 }
 
-function addMessage(sender, text, type, id, ts, role) {
+function addMessage(sender, text, type, id, ts, role, image) {
   const msgs = document.getElementById('messages')
   const div = document.createElement('div')
   div.className = 'msg ' + type
@@ -1245,7 +1274,21 @@ function addMessage(sender, text, type, id, ts, role) {
       nameEl.appendChild(tag)
     }
     div.appendChild(nameEl)
-    div.appendChild(document.createTextNode(text))
+    if (text) div.appendChild(document.createTextNode(text))
+
+    // v0.11.0 — photo attachment: thumbnail in the bubble, tap for full size.
+    if (image && image.url) {
+      const a = document.createElement('a')
+      a.href = image.url
+      a.target = '_blank'
+      a.rel = 'noreferrer'
+      const img = document.createElement('img')
+      img.className = 'photo'
+      img.src = image.url
+      img.alt = image.name || 'photo'
+      a.appendChild(img)
+      div.appendChild(a)
+    }
 
     const timeEl = document.createElement('div')
     timeEl.className = 'time'
@@ -1276,6 +1319,50 @@ function sendMessage() {
   ws.send(JSON.stringify({ type: 'chat', text: text }))
   input.value = ''
   input.focus()
+}
+
+// v0.11.0 — photos. The 🖼 button opens a file picker; the chosen image is
+// uploaded to /upload (signed in), then sent as a chat message carrying the
+// minted /img/ URL. A caption typed into the box rides along.
+let uploading = false
+
+function pickPhoto() {
+  if (uploading || !ws || ws.readyState !== WebSocket.OPEN) return
+  document.getElementById('img-file').value = ''
+  document.getElementById('img-file').click()
+}
+
+async function uploadPhoto(file) {
+  if (!file) return
+  if (!file.type || !file.type.startsWith('image/')) {
+    alert('That file is not an image')
+    return
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    alert('Image too large — 8 MB max')
+    return
+  }
+  uploading = true
+  document.getElementById('img-btn').disabled = true
+  try {
+    const form = new FormData()
+    form.append('token', session ? session.token : '')
+    form.append('image', file)
+    const res = await fetch('/upload', { method: 'POST', body: form })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.ok) throw new Error(data.error || 'upload failed')
+
+    const input = document.getElementById('msg-input')
+    const text = input.value.trim()
+    ws.send(JSON.stringify({ type: 'chat', text: text, image: { url: data.url, name: file.name } }))
+    input.value = ''
+    input.focus()
+  } catch (e) {
+    alert('Photo failed to send: ' + e.message)
+  } finally {
+    uploading = false
+    document.getElementById('img-btn').disabled = !(ws && ws.readyState === WebSocket.OPEN)
+  }
 }
 
 function deleteMessage(id) {
@@ -1320,6 +1407,8 @@ document.getElementById('copy-header-btn').addEventListener('click', copyHeaderL
 document.getElementById('close-room-btn').addEventListener('click', closeRoom)
 document.getElementById('leave-btn').addEventListener('click', leaveRoom)
 document.getElementById('send-btn').addEventListener('click', sendMessage)
+document.getElementById('img-btn').addEventListener('click', pickPhoto)
+document.getElementById('img-file').addEventListener('change', function () { uploadPhoto(this.files[0]) })
 document.getElementById('go-private-landing').addEventListener('click', function () { location.href = '/private' })
 document.getElementById('dormant-private-btn').addEventListener('click', function () { location.href = '/private' })
 document.getElementById('auth-request-btn').addEventListener('click', requestLink)

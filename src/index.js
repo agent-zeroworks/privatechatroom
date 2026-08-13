@@ -85,6 +85,16 @@ export default {
 		if (path === '/notify/pref' && request.method === 'POST') {
 			return handleNotifyPref(request, env)
 		}
+		// v0.11.0 — photo upload: signed-in members drop images into rooms.
+		// Images live in KV (img:<env>:<name>) and are served back at /img/<name>.
+		if (path === '/upload' && request.method === 'POST') {
+			return handleUpload(request, env)
+		}
+		// v0.11.0 — serve a stored image. Same-origin <img> tags carry the
+		// door cookie, so this stays behind the door like everything else.
+		if (/^\/img\/[A-Za-z0-9-]+\.[a-z0-9]+$/.test(path) && request.method === 'GET') {
+			return handleImage(request, env, path)
+		}
 		// TEST BUILD ONLY: instant test accounts, one click, no email step.
 		if (path === '/auth/dev-test' && request.method === 'POST') {
 			return handleDevTest(request, env)
@@ -474,6 +484,54 @@ async function handleAuthMe(request, env) {
 		return json({ ok: false }, 401)
 	}
 	return json({ ok: true, email: user.email, nickname: user.nickname, role: user.role || 'user' })
+}
+
+// v0.11.0 — photo upload. Requires a real session (signed-in member), so
+// the KV store can't be filled by randoms who happen to know the door code.
+// 8 MB cap, image types only. The minted /img/ URL is what rooms carry.
+const IMG_MAX_BYTES = 8 * 1024 * 1024
+const IMG_TYPES = new Map([
+	['image/jpeg', 'jpg'],
+	['image/png', 'png'],
+	['image/gif', 'gif'],
+	['image/webp', 'webp']
+])
+const IMG_CT = { jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' }
+
+async function handleUpload(request, env) {
+	const form = await request.formData().catch(() => null)
+	if (!form) return json({ ok: false, error: 'Bad request' }, 400)
+
+	const user = await sessionUser(env, String(form.get('token') || ''))
+	if (!user) return json({ ok: false, error: 'Not signed in' }, 401)
+
+	const file = form.get('image')
+	if (!file || typeof file.arrayBuffer !== 'function') {
+		return json({ ok: false, error: 'No image' }, 400)
+	}
+	const ct = String(file.type || '').toLowerCase()
+	const ext = IMG_TYPES.get(ct)
+	if (!ext) return json({ ok: false, error: 'Images only (jpg, png, gif, webp)' }, 415)
+
+	const buf = await file.arrayBuffer()
+	if (buf.byteLength === 0) return json({ ok: false, error: 'Empty file' }, 400)
+	if (buf.byteLength > IMG_MAX_BYTES) return json({ ok: false, error: 'Too large (8 MB max)' }, 413)
+
+	const name = crypto.randomUUID().replace(/-/g, '') + '.' + ext
+	await env.ROOM_KV.put(kvKey(env, 'img', name), buf, { metadata: { ct } })
+	return json({ ok: true, url: '/img/' + name })
+}
+
+async function handleImage(request, env, path) {
+	const name = path.slice('/img/'.length)
+	const hit = await env.ROOM_KV.getWithMetadata(kvKey(env, 'img', name), 'arrayBuffer')
+	if (!hit || !hit.value) {
+		return new Response('Not found', { status: 404 })
+	}
+	const ct = (hit.metadata && hit.metadata.ct) || IMG_CT[name.split('.').pop()] || 'application/octet-stream'
+	return new Response(hit.value, {
+		headers: { 'Content-Type': ct, 'Cache-Control': 'private, max-age=86400' }
+	})
 }
 
 // Look up a room's lifecycle without opening a connection.
