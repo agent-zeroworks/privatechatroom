@@ -1,12 +1,13 @@
-// Unit test for the v0.4.1 lifecycle rules in maybeDestroy().
-// Placeholder week: everyone closes -> room deletes itself.
-// Dormant room: NEVER wiped (reserved stock for future rentals).
-// Public room: the house, never destroyed.
+// Unit test for the v0.10.0 persistence rules.
+// Real persistence: private room chats save forever, rooms only open to
+// people with the code, and nothing ever wipes history — closing a room
+// is just leaving. Legacy rooms stamped with the old one-week deadline
+// convert to permanent on first load.
 
 import { Chatroom } from '../src/chatroom.js'
+import { ROOM_LIFETIME_MS } from '../src/config.js'
 
 function makeRoom(isPublic, opts = {}) {
-  const now = Date.now()
   const meta = opts.meta
   const storage = {
     _data: meta ? { meta } : {},
@@ -30,69 +31,48 @@ function check(name, cond) {
   if (!cond) failures++
 }
 
-const freshMeta = { created_at: Date.now(), expires_at: Date.now() + 7 * 24 * 3600 * 1000 }
-const dormantMeta = { created_at: Date.now() - 8 * 24 * 3600 * 1000, expires_at: Date.now() - 24 * 3600 * 1000 }
+check('persistence is on (ROOM_LIFETIME_MS is null)', ROOM_LIFETIME_MS === null)
 
-// 1) private, everyone closed, fresh -> destroyed
+// 1) fresh private room -> stamped without an expiry (never expires)
 {
-  const room = makeRoom(false, { meta: freshMeta })
-  room.closedBy.add('sock1')
-  await room.maybeDestroy()
-  check('fresh room, all closed -> deleteAll called', room.state.storage.calls.includes('deleteAll'))
-  check('fresh room, all closed -> destroyed flag', room.destroyed === true)
+  const room = makeRoom(false)
+  const meta = await room.ensureMeta()
+  check('fresh room has created_at', !!meta.created_at)
+  check('fresh room expires_at is null (never expires)', meta.expires_at === null)
 }
 
-// 2) private, still people inside -> survives
+// 2) legacy room with a past one-week deadline -> converts to permanent on load
 {
-  const room = makeRoom(false, { meta: freshMeta })
-  room.closedBy.add('sock1')
-  room.sessions.set('sock2', {})
-  await room.maybeDestroy()
-  check('room with live session -> NOT destroyed', room.destroyed === false && !room.state.storage.calls.includes('deleteAll'))
+  const legacy = { created_at: Date.now() - 8 * 24 * 3600 * 1000, expires_at: Date.now() - 24 * 3600 * 1000 }
+  const room = makeRoom(false, { meta: legacy })
+  const meta = await room.loadMeta()
+  check('legacy room converts expires_at to null', meta.expires_at === null)
+  check('conversion persisted to storage', room.state.storage.calls.includes('put:meta'))
 }
 
-// 3) private, nobody explicitly closed -> survives (tab close = just leaving)
+// 3) converted room is never dormant (history preserved, door open)
 {
-  const room = makeRoom(false, { meta: freshMeta })
-  await room.maybeDestroy()
-  check('no explicit close -> NOT destroyed', room.destroyed === false && !room.state.storage.calls.includes('deleteAll'))
+  const legacy = { created_at: Date.now() - 30 * 24 * 3600 * 1000, expires_at: Date.now() - 20 * 24 * 3600 * 1000 }
+  const room = makeRoom(false, { meta: legacy })
+  await room.loadMeta()
+  check('converted room -> isDormant false', (await room.isDormant()) === false)
 }
 
-// 4) dormant room -> NEVER wiped, even if everyone closed
+// 4) history is never wiped — no lifecycle op calls deleteAll
 {
-  const room = makeRoom(false, { meta: dormantMeta })
-  room.closedBy.add('sock1')
-  await room.maybeDestroy()
-  check('dormant room -> NOT destroyed (history preserved)', room.destroyed === false && !room.state.storage.calls.includes('deleteAll'))
+  const room = makeRoom(false)
+  await room.ensureMeta()
+  await room.loadMeta()
+  await room.pruneExpired()
+  check('no deleteAll in any lifecycle op', !room.state.storage.calls.includes('deleteAll'))
 }
 
-// 5) public room -> the house never goes away
+// 5) public room: house meta, never dormant, never wiped
 {
   const room = makeRoom(true, { meta: {} })
-  room.closedBy.add('sock1')
-  await room.maybeDestroy()
-  check('public room -> NOT destroyed', room.destroyed === false && !room.state.storage.calls.includes('deleteAll'))
-}
-
-// 6) already destroyed -> no double wipe
-{
-  const room = makeRoom(false, { meta: freshMeta })
-  room.destroyed = true
-  room.closedBy.add('sock1')
-  await room.maybeDestroy()
-  check('already destroyed -> no second deleteAll', !room.state.storage.calls.includes('deleteAll'))
-}
-
-// 7) destroyed room revisitable: fresh meta stamped on next use (resurrect)
-{
-  const room = makeRoom(false, { meta: freshMeta })
-  room.closedBy.add('sock1')
-  await room.maybeDestroy()
-  room.destroyed = false
-  room.closedBy.clear()
-  const meta = await room.ensureMeta()
-  check('revisit after destroy -> fresh week stamped', !!meta.created_at && !!meta.expires_at)
-  check('revisit after destroy -> storage rewritten', room.state.storage.calls.some(c => c === 'put:meta'))
+  await room.loadMeta()
+  check('public room -> not dormant', (await room.isDormant()) === false)
+  check('public room -> no deleteAll', !room.state.storage.calls.includes('deleteAll'))
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)

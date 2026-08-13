@@ -7,21 +7,14 @@ export const PUBLIC_ROOM = 'CATCAFE8'
 export const CODE_RE = /^[A-HJ-NP-Z2-9]{8}$/
 
 // ---------------------------------------------------------------------------
-// Private room lifecycle — TEMPORARY PLACEHOLDER POLICY
+// Private room lifecycle — REAL PERSISTENCE (v0.10.0)
 // ---------------------------------------------------------------------------
-// A room created with the generate-code button keeps the CLASSIC lifecycle
-// during its first week: when every party closes the room, it deletes
-// itself (history wiped, code reusable for a fresh room). A room that is
-// still alive ROOM_LIFETIME_MS after first use goes DORMANT instead:
-// locked to new visitors, history and identity preserved, code reserved —
-// that reserved pool is the future rental inventory.
-//
-// THE DAY REAL PERSISTENCE SHIPS — this is the whole activation:
-//   1. set ROOM_LIFETIME_MS to null   (new rooms never expire)
-//   2. set REVIVE_DORMANT to true     (old dormant rooms wake on next visit)
-// No other code changes needed.
-export const ROOM_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000 // 1 week (placeholder)
-export const REVIVE_DORMANT = false
+// Rooms never expire. Chats save forever inside the room, and the room
+// only opens to people who have the code — the code is the key, and the
+// key is the only way in. Closing a room is just leaving; the door stays.
+// Legacy rooms stamped with the old one-week deadline convert to
+// permanent on first load (see Chatroom.loadMeta).
+export const ROOM_LIFETIME_MS = null // null = rooms never expire
 
 // ---------------------------------------------------------------------------
 // Magic-link delivery — TEMPORARY: no email provider yet.

@@ -1,10 +1,8 @@
 // Minx's Chatroom — Cloudflare Worker
 // Main focus: the public room (PUBLIC_ROOM code, never destroyed).
 // Private rooms: every room is a Durable Object keyed by its 8-char code.
-// Placeholder policy: during the first week, a room deletes itself when
-// everyone closes it (classic lifecycle). A room still alive after a week
-// goes dormant (locked, history kept). The day real persistence ships, a
-// config flip revives them.
+// Real persistence (v0.10.0): chats save forever, a room only opens to
+// people with the code, and closing a room is just leaving.
 //
 // Auth (v0.3.0): magic-link login gates private rooms. Codes and sessions
 // live in KV, keyed with the env name so dev and prod never collide.

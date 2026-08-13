@@ -1,6 +1,7 @@
 // Minx's Chatroom — frontend
 // Served as a single HTML page; the client routes between screens:
-//   /             -> public room join (the main focus)
+//   /             -> blank main screen (v0.10.0): the only door is the tiny
+//                    blank square button bottom-right → private rooms
 //   /private      -> private room landing (create / join by code, tucked aside)
 //   /room/<code>  -> private room join
 //   /auth/verify  -> magic-link landing (sign-in screen; dev shows link inline)
@@ -348,10 +349,10 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
 
   #online-count { font-size: 0.8rem; color: var(--sub); }
 
-  /* Heartline version badge — subtle, bottom-right, tap for history */
+  /* Heartline version badge — subtle, bottom-LEFT, tap for history (v0.10.0) */
   #version-box {
     position: fixed;
-    right: 10px;
+    left: 10px;
     bottom: 6px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.68rem;
@@ -363,7 +364,7 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   #version-box:hover { color: var(--sub); }
   #version-history {
     position: absolute;
-    right: 0;
+    left: 0;
     bottom: 20px;
     background: var(--panel);
     border: 1px solid var(--border-header);
@@ -401,6 +402,25 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     line-height: 1.35;
     margin-top: 1px;
   }
+
+  /* Secret door (v0.10.0): tiny blank square, bottom-right. Opens the
+     private rooms section. Blank on purpose — the main screen is blank,
+     and this is the only way in. */
+  #secret-btn {
+    position: fixed;
+    right: 12px;
+    bottom: 8px;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--faint);
+    border-radius: 3px;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+    z-index: 50;
+  }
+  #secret-btn:hover { border-color: var(--sub); background: var(--panel-hover); }
+  #secret-btn:active { transform: scale(0.94); }
 
   /* Test build banner — loud, fixed to the top. Injected on the dev worker. */
   #test-banner {
@@ -584,28 +604,11 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
 <!-- TEST BUILD ribbon — injected by the worker only on the dev lane. -->
 __BANNER__
 
-<!-- PUBLIC ROOM — everyone lands here. -->
-<div id="public-join" class="screen">
-  <!-- Tag test: dev build only. FIRST thing on the landing page (v0.8.3).
-       Pure tag toggle — it adds the AGENT tag to whoever clicks it and
-       nothing else changes: no account, no name swap, no redirect. The
-       same box sits on the private room join screen, so a signed-in
-       account can carry the tag into a private room too. -->
-  <div class="tag-test-box" hidden>
-    <p class="dt-title">Tag test (dev only)</p>
-    <p>Adds the AGENT tag to your messages. Nothing else changes: same name, same account, same room.</p>
-    <div class="dt-row">
-      <button class="tag-agent-btn">Test Agent</button>
-      <button class="tag-clear-btn">No tag</button>
-    </div>
-    <p class="dt-note">Works in the public room AND private rooms. Everyone else sees the tag on your messages.</p>
-  </div>
-  <h1>Public room</h1>
-  <p>Everyone lands here. No code needed.</p>
-  <input id="public-name" type="text" placeholder="Your name" maxlength="24" autocomplete="off">
-  <button id="public-join-btn">Join</button>
-  <button class="foot-link" id="go-private">Private rooms</button>
-</div>
+<!-- MAIN SCREEN (v0.10.0) — intentionally blank. The only door is the
+     tiny blank square button bottom-right, which opens the private rooms
+     section. Version badge sits bottom-left. The public room still exists
+     at its code (CATCAFE8) for anyone who knows the way in. -->
+<div id="public-join" class="screen"></div>
 
 <!-- PRIVATE ROOMS -->
 <div id="private-landing" class="screen">
@@ -620,7 +623,6 @@ __BANNER__
   </div>
   <div class="error" id="code-error"></div>
   <button class="foot-link" id="signout-btn">Sign out</button>
-  <button class="foot-link" id="go-public">Public room</button>
 </div>
 
 <!-- PRIVATE ROOM JOIN -->
@@ -648,11 +650,10 @@ __BANNER__
 <div id="dormant" class="screen">
   <h1>This room is asleep</h1>
   <div id="room-code-box">code <b id="dormant-code-display"></b></div>
-  <p id="dormant-note">This room hit its one-week placeholder limit and went dormant. Its messages are tucked away safely, and the code stays reserved.</p>
+  <p id="dormant-note">This room is asleep. Its messages are tucked away safely — with persistence, it wakes the next time someone with the code walks in.</p>
   <p id="dormant-expiry" class="or"></p>
-  <p>Revival is on the roadmap. When it ships, this room wakes up with everything intact.</p>
+  <p>Come back with the code — the room wakes up with everything intact.</p>
   <button class="ghost" id="dormant-private-btn">Private rooms</button>
-  <button class="foot-link" id="dormant-public-btn">Public room</button>
 </div>
 
 <!-- SIGN IN — magic-link login. Gates private rooms. -->
@@ -673,7 +674,6 @@ __BANNER__
     <button id="auth-verify-btn">Verify</button>
   </div>
   <div class="error" id="auth-error"></div>
-  <button class="foot-link" id="auth-back">Public room</button>
 </div>
 
 <!-- CHAT -->
@@ -705,11 +705,15 @@ __BANNER__
   <span id="view-action">users' view</span>
 </button>
 
-<!-- HEARTLINE VERSION — SemVer, bottom-right, tap for history -->
+<!-- HEARTLINE VERSION — SemVer, bottom-LEFT, tap for history (v0.10.0) -->
 <div id="version-box">
-  <span id="version-label">v0.8.3</span>
+  <span id="version-label">v0.10.0</span>
   <div id="version-history" hidden></div>
 </div>
+
+<!-- SECRET DOOR (v0.10.0) — tiny blank square, bottom-right. Opens the
+     private rooms section. The main screen is blank; this is the door. -->
+<button id="secret-btn" type="button" aria-label="Private rooms"></button>
 
 <script>
 const PUBLIC_ROOM = 'CATCAFE8'
@@ -719,10 +723,12 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.8.3'
+const VERSION = 'v0.10.0'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.10.0', note: 'Blank main screen. Secret door: tiny blank square button bottom-right opens private rooms; version badge moved bottom-left. Real persistence: private room chats save forever and rooms only open to people with the code. No more wipe-on-close' },
+  { v: 'v0.9.0', note: 'Away-notifications: digest emails when you miss messages in a room, one-tap link signs you back in; per-account on/off pref' },
   { v: 'v0.8.3', note: 'Test buttons are tag-only now: Test Agent just adds the AGENT tag to your messages — no account, no name swap, no redirect. Works in the public room AND private rooms; toggle from the landing page, the private room join screen, or the chat header. Dev only' },
   { v: 'v0.8.2', note: 'Test accounts are now the FIRST thing on the landing page: one tap signs in as the role and joins the public room. Public room is session-aware — walk-ins stay anonymous, signed-in accounts show their name and role tag' },
   { v: 'v0.8.1', note: 'Door fix: no caching on door redirects — the code never re-asks after unlock. Test-account buttons moved to the top of the sign-in screen, right where you type your nickname' },
@@ -1003,7 +1009,7 @@ function route() {
   } else {
     roomCode = ''
     isPrivate = false
-    document.title = 'Chatroom'
+    document.title = 'Heartline'
     show('public-join')
   }
 }
@@ -1106,14 +1112,6 @@ function copyHeaderLink() {
 }
 
 // ---------- joining ----------
-
-function joinPublic() {
-  const input = document.getElementById('public-name')
-  const name = input.value.trim()
-  if (!name) return
-  username = name
-  enterChat()
-}
 
 function joinPrivate() {
   if (!session) {
@@ -1280,8 +1278,8 @@ function leaveRoom() {
   location.href = '/'
 }
 
-// private room: close it — during the placeholder week, when everyone's
-// gone the room dies with the code. Survives to the week mark? It sleeps.
+// private room: close it — just leaving (v0.10.0). The room stays, chats
+// stay saved, anyone with the code can walk back in.
 function closeRoom() {
   leaving = true
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1300,7 +1298,6 @@ function setStatus(state, label) {
 
 // ---------- wire up ----------
 
-document.getElementById('public-join-btn').addEventListener('click', joinPublic)
 document.getElementById('private-join-btn').addEventListener('click', joinPrivate)
 document.getElementById('create-btn').addEventListener('click', createRoom)
 document.getElementById('join-code-btn').addEventListener('click', joinByCode)
@@ -1309,15 +1306,13 @@ document.getElementById('copy-header-btn').addEventListener('click', copyHeaderL
 document.getElementById('close-room-btn').addEventListener('click', closeRoom)
 document.getElementById('leave-btn').addEventListener('click', leaveRoom)
 document.getElementById('send-btn').addEventListener('click', sendMessage)
-document.getElementById('go-private').addEventListener('click', function () { location.href = '/private' })
-document.getElementById('go-public').addEventListener('click', function () { location.href = '/' })
 document.getElementById('go-private-landing').addEventListener('click', function () { location.href = '/private' })
 document.getElementById('dormant-private-btn').addEventListener('click', function () { location.href = '/private' })
-document.getElementById('dormant-public-btn').addEventListener('click', function () { location.href = '/' })
 document.getElementById('auth-request-btn').addEventListener('click', requestLink)
 document.getElementById('auth-verify-btn').addEventListener('click', verifyCode)
-document.getElementById('auth-back').addEventListener('click', function () { location.href = '/' })
 document.getElementById('signout-btn').addEventListener('click', signOut)
+// Secret door (v0.10.0): the blank square bottom-right opens private rooms.
+document.getElementById('secret-btn').addEventListener('click', function () { location.href = '/private' })
 document.getElementById('view-toggle').addEventListener('click', function () {
   applyView(view === 'agent' ? 'user' : 'agent')
   if (session && session.role === 'agent') {
@@ -1346,9 +1341,6 @@ if (IS_DEV) {
   applyTagUI()
 }
 
-document.getElementById('public-name').addEventListener('keydown', function (e) {
-  if (e.key === 'Enter') joinPublic()
-})
 document.getElementById('auth-email').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') requestLink()
 })

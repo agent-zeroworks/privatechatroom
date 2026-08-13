@@ -1,6 +1,9 @@
 // WS smoke test against wrangler dev (local).
 // 1) Public room: chat persists after a hard disconnect.
-// 2) Private room: explicitly closing it destroys it (history gone).
+// 2) Private room: closing it is just leaving — chats persist (v0.10.0).
+//
+// NOTE (v0.8.0+): both lanes are door-locked. Run against a local
+// wrangler dev with the door disabled, or send the hl_door cookie.
 
 const BASE = 'ws://127.0.0.1:8787/chat'
 
@@ -43,10 +46,11 @@ console.log('  history persists after disconnect:', has(b.events, 'history', 'he
 closeSocket(b.ws)
 await wait(300)
 
-// ---------- TEST 2: private room close-to-destroy ----------
+// ---------- TEST 2: private room chats persist across close ----------
 // Private rooms need a session (v0.3.0+): request a magic link, verify it,
-// then connect with the session token.
-console.log('TEST 2: private room close-to-destroy')
+// then connect with the session token. v0.10.0: closing a room is just
+// leaving — history stays for anyone with the code.
+console.log('TEST 2: private room chats persist across close')
 
 async function getSession(email) {
   const req = await fetch('http://127.0.0.1:8787/auth/request', {
@@ -82,7 +86,8 @@ await wait(700)
 let d = await connectPrivate('PRVTEST2', token)
 await wait(500)
 const hist = d.events.find(e => e.type === 'history')
-console.log('  history after close (expect empty):', hist ? hist.messages.length : 'NO HISTORY EVENT')
+console.log('  history after close (expect 1 message):', hist ? hist.messages.length : 'NO HISTORY EVENT')
+console.log('  secret message survived the close:', has(d.events, 'history', 'secret message'))
 closeSocket(d.ws)
 await wait(300)
 
@@ -103,16 +108,16 @@ console.log('  history survives (bob closed, alice in):', has(g.events, 'history
 closeSocket(e.ws)
 closeSocket(g.ws)
 await wait(400)
-// now everyone gone but nobody sent close from alice... alice just disconnected.
-// alice never closed explicitly → closedBy is empty → room NOT destroyed
+// now everyone is gone (alice hard-disconnected, bob closed) — with
+// persistence (v0.10.0) the room survives regardless: closing is leaving.
 let h = await connectPrivate('SECRET99', token)
 await wait(500)
 const hist2 = h.events.find(e2 => e2.type === 'history')
 console.log('  history after all gone w/o explicit close (persists):', hist2 ? hist2.messages.length : 'NO HISTORY')
 closeSocket(h.ws)
 
-// ---------- TEST 4: destroy → reopen → destroy again (regression) ----------
-console.log('TEST 4: reopen after destroy can be destroyed again')
+// ---------- TEST 4: reopen after close keeps everything (v0.10.0) ----------
+console.log('TEST 4: reopen after close keeps everything')
 let i = await connectPrivate('RETRY999', token)
 await wait(300)
 i.ws.send(JSON.stringify({ type: 'chat', text: 'first life' }))
@@ -130,7 +135,9 @@ await wait(600)
 let k = await connectPrivate('RETRY999', token)
 await wait(400)
 const hist3 = k.events.find(e => e.type === 'history')
-console.log('  history after second close (expect empty):', hist3 ? hist3.messages.length : 'NO HISTORY')
+console.log('  history after second close (expect 2 messages):', hist3 ? hist3.messages.length : 'NO HISTORY')
+console.log('  first life survived:', has(k.events, 'history', 'first life'))
+console.log('  second life survived:', has(k.events, 'history', 'second life'))
 closeSocket(k.ws)
 console.log('DONE')
 process.exit(0)

@@ -1,12 +1,12 @@
 // Minx's Chatroom — Durable Object
 // Manages real-time room state: messages, connected users, broadcast.
 // The public room (PUBLIC_ROOM) never dies; its history expires after 24h.
-// Private rooms (PLACEHOLDER POLICY): during their first week they keep the
-// classic lifecycle — when every party closes the room, it deletes itself.
-// A room still alive ROOM_LIFETIME_MS after first use goes DORMANT: locked
-// to new visitors, history preserved, code reserved (the future rental pool).
+// Private rooms (REAL PERSISTENCE, v0.10.0): chats save forever and a room
+// only opens to people who have the code. Closing is just leaving — the
+// door stays. Rooms stamped with the old one-week deadline convert to
+// permanent on first load.
 
-import { PUBLIC_ROOM, ROOM_LIFETIME_MS, REVIVE_DORMANT, NOTIFY_DIGEST_WAIT_MS, NOTIFY_MIN_GAP_MS, NOTIFY_CODE_TTL_S } from './config.js'
+import { PUBLIC_ROOM, ROOM_LIFETIME_MS, NOTIFY_DIGEST_WAIT_MS, NOTIFY_MIN_GAP_MS, NOTIFY_CODE_TTL_S } from './config.js'
 import { sendEmail } from './email.js'
 
 // Public rooms forget messages older than 24 hours.
@@ -35,8 +35,6 @@ export class Chatroom {
 		// min-gap clock (lastSentAt) lives on the MEMBER record instead —
 		// digest entries die after flush, members persist.
 		this.pendingDigests = null
-		// Sockets that explicitly closed the room (private rooms only)
-		this.closedBy = new Set()
 		// Room metadata (private rooms): { created_at, expires_at } persisted
 		// to storage. expires_at = null means the room never expires.
 		this.meta = null
@@ -44,7 +42,6 @@ export class Chatroom {
 		// Public room: also pruned to the last 24 hours.
 		this.messages = []
 		this.loaded = false
-		this.destroyed = false
 	}
 
 	// Load room metadata from storage (private rooms only).
@@ -55,6 +52,13 @@ export class Chatroom {
 			return this.meta
 		}
 		this.meta = (await this.state.storage.get('meta')) || null
+		// v0.10.0 — real persistence: rooms never expire. Any room still
+		// carrying the old one-week deadline converts to permanent the
+		// first time it loads (history untouched).
+		if (this.meta && this.meta.expires_at !== null && ROOM_LIFETIME_MS === null) {
+			this.meta.expires_at = null
+			await this.state.storage.put('meta', this.meta)
+		}
 		return this.meta
 	}
 
@@ -73,8 +77,9 @@ export class Chatroom {
 		return fresh
 	}
 
-	// Is this room past its expiry? Public rooms and never-expiring rooms
-	// (expires_at === null) are never dormant.
+	// Is this room past its expiry? With real persistence (v0.10.0) every
+	// room converts to expires_at === null, so nothing is ever dormant.
+	// Kept as a safety net for rolled-back or legacy state.
 	async isDormant() {
 		const meta = await this.loadMeta()
 		if (!meta || !meta.expires_at) return false
@@ -102,24 +107,11 @@ export class Chatroom {
 
 		// WebSocket upgrade
 		if (url.pathname === '/websocket') {
-			// Private rooms: stamp the room on first use, then check expiry.
-			// A dormant code is locked — the room sleeps, its history kept.
+			// Private rooms: stamp the room on first use. No expiry check —
+			// with real persistence (v0.10.0) rooms never sleep; loadMeta
+			// already converted any legacy deadline to null.
 			if (!this.isPublic) {
 				await this.ensureMeta()
-				if (await this.isDormant()) {
-					if (REVIVE_DORMANT) {
-						// The day persistence ships: a visit wakes the room.
-						this.meta.expires_at = ROOM_LIFETIME_MS ? Date.now() + ROOM_LIFETIME_MS : null
-						await this.state.storage.put('meta', this.meta)
-					} else {
-						const meta = this.meta
-						return json({
-							error: 'dormant',
-							code: this.roomCode,
-							expiresAt: meta.expires_at
-						}, 410)
-					}
-				}
 			}
 
 			const pair = new WebSocketPair()
@@ -144,10 +136,6 @@ export class Chatroom {
 
 			// Accept the WebSocket
 			server.accept()
-
-			// A new connection resurrects the room — a code can be used again
-			// after everyone closed it, and it must be destroyable again too.
-			this.destroyed = false
 
 			// Load persisted history once (DOs hibernate between requests)
 			if (!this.loaded) {
@@ -252,20 +240,13 @@ export class Chatroom {
 					}
 
 					if (data.type === 'close') {
-						// User closed the room on their side. During the placeholder
-						// week this is the old classic lifecycle: a private room
-						// deletes itself once every party has closed it.
+						// v0.10.0 — closing a room is just leaving. The room stays,
+						// its chats stay saved, and anyone with the code can walk
+						// back in later. Nothing ever wipes history now.
 						this.sessions.delete(server)
-						if (this.isPublic) {
-							// Public room: closing is just leaving — the room lives on
-							this.broadcastSystem(username + ' left')
-						} else {
-							this.closedBy.add(server)
-							this.broadcastSystem(username + ' closed the room')
-						}
+						this.broadcastSystem(username + ' left')
 						this.broadcastOnlineCount()
 						server.close()
-						await this.maybeDestroy()
 					}
 				} catch (e) {
 					// Ignore bad messages
@@ -275,11 +256,6 @@ export class Chatroom {
 			// Handle disconnect (explicit close fires this too)
 			server.addEventListener('close', () => {
 				this.sessions.delete(server)
-				if (this.closedBy.has(server)) {
-					this.closedBy.delete(server)
-					this.maybeDestroy()
-					return
-				}
 				this.broadcastSystem(username + ' left')
 				this.broadcastOnlineCount()
 			})
@@ -303,28 +279,6 @@ export class Chatroom {
 		} else {
 			await this.state.storage.put('messages', kept)
 		}
-	}
-
-	// If everyone has closed the room during its placeholder week, erase it —
-	// the code goes dead (a fresh visit starts a brand-new room). The public
-	// room is exempt: it is the house, it never goes away. A DORMANT room is
-	// exempt too: its history is preserved on purpose, it's reserved stock
-	// for the future rental model — sleeping rooms are never wiped.
-	async maybeDestroy() {
-		if (this.destroyed) return
-		if (this.isPublic) return
-		if (this.sessions.size > 0) return
-		if (this.closedBy.size === 0) return
-		if (await this.isDormant()) return
-
-		this.destroyed = true
-		await this.state.storage.deleteAll()
-		this.messages = []
-		// Drop the cached meta too: a revisit on this same instance must see a
-		// wiped room and stamp a fresh week, not a stale (possibly dormant) one.
-		this.meta = null
-		this.members = null
-		this.pendingDigests = null
 	}
 
 	// -----------------------------------------------------------------------
