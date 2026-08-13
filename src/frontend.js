@@ -49,11 +49,15 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     --danger-soft: #fdecea;
   }
 
+  /* v0.10.2 — page scroll locked. Panels (version history, chat messages)
+     scroll on their own; the page itself never moves on a phone. */
+  html, body { height: 100%; overflow: hidden; }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--bg);
     color: var(--fg);
-    height: 100vh;
+    height: 100%;
     display: flex;
     flex-direction: column;
   }
@@ -64,6 +68,7 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     align-items: center;
     justify-content: center;
     height: 100vh;
+    height: 100dvh; /* v0.10.2 — real phone viewport, no URL-bar overflow */
     gap: 12px;
     padding: 20px;
     text-align: center;
@@ -238,7 +243,7 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
   }
   #room-code-box button:hover { background: var(--accent-soft); }
 
-  #chat-screen { display: none; flex-direction: column; height: 100vh; }
+  #chat-screen { display: none; flex-direction: column; height: 100vh; height: 100dvh; }
   #chat-screen.on { display: flex; }
 
   #header {
@@ -487,9 +492,11 @@ export const FRONTEND = String.raw`<!DOCTYPE html>
     font-weight: 400;
     opacity: 0.8;
   }
-  /* Push content down so the banner never covers the header */
-  body.test-build .screen, body.test-build #chat-screen { margin-top: 28px; }
-  body.soon-build .screen, body.soon-build #chat-screen { margin-top: 28px; }
+  /* v0.10.2 — banner clearance via padding (inside the viewport-sized
+     screen) instead of margin, so the page never grows past the viewport
+     and can't scroll on phones */
+  body.test-build .screen, body.test-build #chat-screen { padding-top: 34px; }
+  body.soon-build .screen, body.soon-build #chat-screen { padding-top: 34px; }
 
   /* ------------------------------------------------------------------
      AGENT VIEW — the second design (v0.6.0)
@@ -712,7 +719,7 @@ __BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-LEFT, tap for history (v0.10.0) -->
 <div id="version-box">
-  <span id="version-label">v0.10.1</span>
+  <span id="version-label">v0.10.2</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -728,10 +735,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.10.1'
+const VERSION = 'v0.10.2'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.10.2', note: 'Page scroll locked: screens fit the phone viewport exactly (100dvh), banner clearance no longer overflows — the site itself never scrolls or bounces' },
   { v: 'v0.10.1', note: 'Version panel: newest entries at the bottom, compact window (~4 rows) that scrolls' },
   { v: 'v0.10.0', note: 'Blank main screen. Secret door: tiny blank square button bottom-right opens private rooms; version badge moved bottom-left. Real persistence: private room chats save forever and rooms only open to people with the code. No more wipe-on-close' },
   { v: 'v0.9.0', note: 'Away-notifications: digest emails when you miss messages in a room, one-tap link signs you back in; per-account on/off pref' },
