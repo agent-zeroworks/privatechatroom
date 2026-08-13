@@ -746,7 +746,7 @@ __BANNER__
 
 <!-- HEARTLINE VERSION — SemVer, bottom-LEFT, tap for history (v0.10.0) -->
 <div id="version-box">
-  <span id="version-label">v0.11.0</span>
+  <span id="version-label">v0.11.1</span>
   <div id="version-history" hidden></div>
 </div>
 
@@ -762,10 +762,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.11.0'
+const VERSION = 'v0.11.1'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.11.1', note: 'Door code rotated — new number on both lanes (check the club chat for it). The old one is dead' },
   { v: 'v0.11.0', note: 'Photos in private rooms: the 🖼 button uploads an image straight into the chat (tap it for full size). Door code is 4386 on both lanes now — one number for the whole club' },
   { v: 'v0.10.1', note: 'Version panel: newest entries at the bottom, compact window (~4 rows) that scrolls' },
   { v: 'v0.10.0', note: 'Blank main screen. Secret door: tiny blank square button bottom-right opens private rooms; version badge moved bottom-left. Real persistence: private room chats save forever and rooms only open to people with the code. No more wipe-on-close' },

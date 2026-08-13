@@ -52,12 +52,13 @@ export const NOTIFY_FROM_EMAIL = 'heartline@thegreateater0.dev' // placeholder u
 // Door codes (v0.8.0) — BOTH LANES are code-locked now.
 // ---------------------------------------------------------------------------
 // Every request to a locked worker must carry the hl_door cookie, which only
-// /door/unlock can mint. Both lanes share one code now (4386 — Joun picked
-// it Aug 13): one number for the whole club, dev and official alike. It's a
-// polite door (anyone who can read the worker source can find the code),
-// not a vault: it keeps randoms from wandering into a preview.
+// /door/unlock can mint. Both lanes share one code (rotated Aug 13 after the
+// old one leaked into public logs): one number for the whole club, dev and
+// official alike. It's a polite door (anyone who can read the worker source
+// can find the code), not a vault: it keeps randoms from wandering into a
+// preview.
 export const DOOR_ENABLED = { dev: true, prod: true }
-export const DOOR_CODES = { dev: '4386', prod: '4386' }
+export const DOOR_CODES = { dev: '2845', prod: '2845' }
 export const DOOR_COOKIE = 'hl_door'
 export const DOOR_COOKIE_VALUE = 'open'
 // Failed attempts per IP before a 60s cooldown (5 tries/min).
