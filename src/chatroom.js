@@ -1,16 +1,12 @@
 // Minx's Chatroom — Durable Object
 // Manages real-time room state: messages, connected users, broadcast.
-// The public room (PUBLIC_ROOM) never dies; its history expires after 24h.
-// Private rooms (REAL PERSISTENCE, v0.10.0): chats save forever and a room
-// only opens to people who have the code. Closing is just leaving — the
-// door stays. Rooms stamped with the old one-week deadline convert to
-// permanent on first load.
+// Private rooms only (v0.11.2 — the public room is gone): chats save
+// forever and a room only opens to people who have the code. Closing is
+// just leaving — the door stays. Rooms stamped with the old one-week
+// deadline convert to permanent on first load.
 
-import { PUBLIC_ROOM, ROOM_LIFETIME_MS, NOTIFY_DIGEST_WAIT_MS, NOTIFY_MIN_GAP_MS, NOTIFY_CODE_TTL_S } from './config.js'
+import { ROOM_LIFETIME_MS, NOTIFY_DIGEST_WAIT_MS, NOTIFY_MIN_GAP_MS, NOTIFY_CODE_TTL_S } from './config.js'
 import { sendEmail } from './email.js'
-
-// Public rooms forget messages older than 24 hours.
-const HISTORY_TTL_MS = 24 * 60 * 60 * 1000
 
 export class Chatroom {
 	constructor(state, env) {
@@ -23,7 +19,6 @@ export class Chatroom {
 		const idObj = state.id
 		const idName = idObj && idObj.name ? idObj.name : (idObj ? String(idObj) : '')
 		this.roomCode = idName.replace(/^room-/, '')
-		this.isPublic = this.roomCode === PUBLIC_ROOM
 
 		// Connected WebSocket sessions: Map<webSocket, { username, role, baseRole, email }>
 		this.sessions = new Map()
@@ -39,18 +34,13 @@ export class Chatroom {
 		// to storage. expires_at = null means the room never expires.
 		this.meta = null
 		// Message history (persisted to storage; keep last 100)
-		// Public room: also pruned to the last 24 hours.
 		this.messages = []
 		this.loaded = false
 	}
 
-	// Load room metadata from storage (private rooms only).
+	// Load room metadata from storage.
 	async loadMeta() {
 		if (this.meta) return this.meta
-		if (this.isPublic) {
-			this.meta = {}
-			return this.meta
-		}
 		this.meta = (await this.state.storage.get('meta')) || null
 		// v0.10.0 — real persistence: rooms never expire. Any room still
 		// carrying the old one-week deadline converts to permanent the
@@ -107,20 +97,18 @@ export class Chatroom {
 
 		// WebSocket upgrade
 		if (url.pathname === '/websocket') {
-			// Private rooms: stamp the room on first use. No expiry check —
-			// with real persistence (v0.10.0) rooms never sleep; loadMeta
-			// already converted any legacy deadline to null.
-			if (!this.isPublic) {
-				await this.ensureMeta()
-			}
+			// Stamp the room on first use. No expiry check — with real
+			// persistence (v0.10.0) rooms never sleep; loadMeta already
+			// converted any legacy deadline to null.
+			await this.ensureMeta()
 
 			const pair = new WebSocketPair()
 			const [client, server] = Object.values(pair)
 
 			// Parse the username from the URL
 			let username = url.searchParams.get('username') || 'Anonymous'
-			// Role rides along from the auth layer ('user' | 'agent'); the
-			// public room never sends one, so it defaults to user.
+			// Role rides along from the auth layer ('user' | 'agent'); it
+			// comes from the session record, never from the client URL.
 			const role = url.searchParams.get('role') || 'user'
 			// v0.9.0 — identity for notifications. The email comes ONLY from
 			// the auth layer (never from client input), and the origin is the
@@ -143,16 +131,13 @@ export class Chatroom {
 				this.loaded = true
 			}
 
-			// Public room: forget anything older than 24 hours
-			await this.pruneExpired()
-
 			// Store the session
 			this.sessions.set(server, { username, role: effectiveRole, baseRole: role, email })
 
-			// v0.9.0 — remember the member (private rooms only). The first time
-			// an identity signs into a room, the room learns they belong here;
-			// from then on, messages while they're away become digest emails.
-			if (!this.isPublic && email) {
+			// v0.9.0 — remember the member. The first time an identity signs
+			// into a room, the room learns they belong here; from then on,
+			// messages while they're away become digest emails.
+			if (email) {
 				await this.loadMembers()
 				if (!this.members.has(email)) {
 					this.members.set(email, { nickname: username, firstSeen: Date.now(), origin })
@@ -206,15 +191,11 @@ export class Chatroom {
 							this.messages.shift()
 						}
 						await this.state.storage.put('messages', this.messages)
-						// Public room: drop anything that just turned 24h old
-						await this.pruneExpired()
 						// Broadcast to all
 						this.broadcast(msg)
 						// v0.9.0 — anyone who belongs here but isn't connected gets
 						// queued for a digest email.
-						if (!this.isPublic) {
-							await this.queueDigests(msg)
-						}
+						await this.queueDigests(msg)
 					}
 
 					// v0.8.3 — dev-only test tag: flip your display tag live.
@@ -275,21 +256,6 @@ export class Chatroom {
 		return new Response('Not found', { status: 404 })
 	}
 
-	// Public rooms forget everything older than 24 hours. Old messages
-	// without a timestamp (pre-2026-08-09) count as expired.
-	async pruneExpired() {
-		if (!this.isPublic || this.messages.length === 0) return
-		const cutoff = Date.now() - HISTORY_TTL_MS
-		const kept = this.messages.filter(m => typeof m.ts === 'number' && m.ts >= cutoff)
-		if (kept.length === this.messages.length) return
-		this.messages = kept
-		if (kept.length === 0) {
-			await this.state.storage.delete('messages')
-		} else {
-			await this.state.storage.put('messages', kept)
-		}
-	}
-
 	// -----------------------------------------------------------------------
 	// v0.9.0 — away-notifications (digest emails)
 	// -----------------------------------------------------------------------
@@ -346,7 +312,6 @@ export class Chatroom {
 	// min-gap: an active room can't spam someone, it just holds the next
 	// digest until the gap is up.
 	async alarm() {
-		if (this.isPublic) return
 		await this.loadDigests()
 		if (this.pendingDigests.size === 0) return
 

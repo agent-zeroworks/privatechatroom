@@ -1,6 +1,7 @@
 // WS smoke test against wrangler dev (local).
-// 1) Public room: chat persists after a hard disconnect.
-// 2) Private room: closing it is just leaving — chats persist (v0.10.0).
+// Every room is private now (v0.11.2 — public room deleted):
+// 1) A room: chat persists after a hard disconnect.
+// 2) Closing a room is just leaving — chats persist (v0.10.0).
 //
 // NOTE (v0.8.0+): both lanes are door-locked. Run against a local
 // wrangler dev with the door disabled, or send the hl_door cookie.
@@ -26,31 +27,32 @@ function closeSocket(ws) {
   try { ws.close() } catch (e) { /* already closed */ }
 }
 
-// ---------- TEST 1: public room persistence ----------
-console.log('TEST 1: public room persistence')
-let a = await connect('CATCAFE8', 'minx')
+// ---------- TEST 1: room persistence across hard disconnect ----------
+console.log('TEST 1: room persistence across hard disconnect')
+const token = await getSession('smoketest@minx.local')
+let a = await connect('SMOKE1A', 'joun', token)
 await wait(400)
-a.ws.send(JSON.stringify({ type: 'chat', text: 'hello public room' }))
+a.ws.send(JSON.stringify({ type: 'chat', text: 'hello private room' }))
 await wait(500)
-console.log('  echo received:', has(a.events, 'chat', 'hello public room'))
-console.log('  join system msg:', has(a.events, 'system', 'minx joined'))
+console.log('  echo received:', has(a.events, 'chat', 'hello private room'))
+console.log('  join system msg:', has(a.events, 'system', 'joun joined'))
 console.log('  online count:', a.events.find(e => e.type === 'online_count')?.count)
 
 // hard disconnect (no close message) — like closing the tab
 closeSocket(a.ws)
 await wait(600)
 
-let b = await connect('CATCAFE8', 'visitor')
+let b = await connect('SMOKE1A', 'joun', token)
 await wait(500)
-console.log('  history persists after disconnect:', has(b.events, 'history', 'hello public room'))
+console.log('  history persists after disconnect:', has(b.events, 'history', 'hello private room'))
 closeSocket(b.ws)
 await wait(300)
 
-// ---------- TEST 2: private room chats persist across close ----------
-// Private rooms need a session (v0.3.0+): request a magic link, verify it,
+// ---------- TEST 2: room chats persist across close ----------
+// Rooms need a session (v0.3.0+): request a magic link, verify it,
 // then connect with the session token. v0.10.0: closing a room is just
 // leaving — history stays for anyone with the code.
-console.log('TEST 2: private room chats persist across close')
+console.log('TEST 2: room chats persist across close')
 
 async function getSession(email) {
   const req = await fetch('http://127.0.0.1:8787/auth/request', {
@@ -69,12 +71,12 @@ async function getSession(email) {
   return verData.session
 }
 
-const token = await getSession('smoketest@minx.local')
+const token2 = await getSession('smoketest@minx.local')
 function connectPrivate(room, t) {
   return connect(room, 'joun', t)
 }
 
-let c = await connectPrivate('PRVTEST2', token)
+let c = await connectPrivate('PRVTEST2', token2)
 await wait(400)
 c.ws.send(JSON.stringify({ type: 'chat', text: 'secret message' }))
 await wait(500)
@@ -83,7 +85,7 @@ console.log('  chat echoed:', has(c.events, 'chat', 'secret message'))
 c.ws.send(JSON.stringify({ type: 'close' }))
 await wait(700)
 
-let d = await connectPrivate('PRVTEST2', token)
+let d = await connectPrivate('PRVTEST2', token2)
 await wait(500)
 const hist = d.events.find(e => e.type === 'history')
 console.log('  history after close (expect 1 message):', hist ? hist.messages.length : 'NO HISTORY EVENT')

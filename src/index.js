@@ -1,6 +1,6 @@
 // Minx's Chatroom — Cloudflare Worker
-// Main focus: the public room (PUBLIC_ROOM code, never destroyed).
-// Private rooms: every room is a Durable Object keyed by its 8-char code.
+// Heartline's private chatroom (v0.11.2: the public room is gone).
+// Every room is a Durable Object keyed by its 8-char code.
 // Real persistence (v0.10.0): chats save forever, a room only opens to
 // people with the code, and closing a room is just leaving.
 //
@@ -10,7 +10,7 @@
 // inline on the sign-in screen instead of being emailed.
 
 import { Chatroom } from './chatroom.js'
-import { PUBLIC_ROOM, CODE_RE, SHOW_CODE_INLINE, DOOR_ENABLED, DOOR_CODES, DOOR_COOKIE, DOOR_COOKIE_VALUE, DOOR_MAX_ATTEMPTS, DOOR_WINDOW_S } from './config.js'
+import { CODE_RE, SHOW_CODE_INLINE, DOOR_ENABLED, DOOR_CODES, DOOR_COOKIE, DOOR_COOKIE_VALUE, DOOR_MAX_ATTEMPTS, DOOR_WINDOW_S } from './config.js'
 import { sendEmail } from './email.js'
 import { FRONTEND } from './frontend.js'
 
@@ -100,8 +100,8 @@ export default {
 			return handleDevTest(request, env)
 		}
 
-		// Frontend: public room (main focus), private room landing, a room
-		// page, or the magic-link landing (GET on the verify path).
+		// Frontend: main screen, private room landing, a room page, or the
+		// magic-link landing (GET on the verify path).
 		if (path === '/' || path === '/index.html' || path === '/private' || path === '/auth/verify') {
 			return serveFrontend(env)
 		}
@@ -542,10 +542,6 @@ async function handleRoomStatus(request, env) {
 	if (!CODE_RE.test(room)) {
 		return json({ error: 'Bad room code' }, 400)
 	}
-	if (room === PUBLIC_ROOM) {
-		// The house never sleeps.
-		return json({ exists: true, dormant: false, expiresAt: null })
-	}
 	const id = env.CHATROOM.idFromName('room-' + room)
 	const stub = env.CHATROOM.get(id)
 	return await stub.fetch(new Request('http://internal/status'))
@@ -564,33 +560,17 @@ async function handleWebSocket(request, env) {
 		return new Response('Bad room code', { status: 400 })
 	}
 
-	// Identity: the public room stays anonymous for walk-ins (no token);
-	// a signed-in account (e.g. a test account) brings its name and role
-	// so the AGENT tag + view switcher work there too. Private rooms
-	// require a valid session, and the account name IS the username —
-	// no name spoofing behind a code.
-	let username
-	let role = 'user'
-	let user = null
-	if (room === PUBLIC_ROOM) {
-		const token = url.searchParams.get('token')
-		user = token ? await sessionUser(env, token) : null
-		if (user) {
-			username = user.nickname || user.email
-			role = user.role || 'user'
-		} else {
-			username = url.searchParams.get('username') || 'Anonymous'
-		}
-	} else {
-		user = await sessionUser(env, url.searchParams.get('token'))
-		if (!user) {
-			return new Response('Not signed in', { status: 401 })
-		}
-		username = user.nickname || user.email
-		// The role comes from the session record, never from the client URL,
-		// so nobody can self-assign 'agent' by editing a link.
-		role = user.role || 'user'
+	// Identity (v0.11.2 — no public room, no walk-ins): every room requires
+	// a valid session. The account name IS the username, no name spoofing
+	// behind a code, and the role comes from the session record, never
+	// from the client URL, so nobody can self-assign 'agent' by editing
+	// a link.
+	const user = await sessionUser(env, url.searchParams.get('token'))
+	if (!user) {
+		return new Response('Not signed in', { status: 401 })
 	}
+	const username = user.nickname || user.email
+	const role = user.role || 'user'
 
 	// v0.8.3 — TEST TAG (dev only). The dev test buttons are pure tag
 	// toggles: they change the display tag and nothing else. An explicit

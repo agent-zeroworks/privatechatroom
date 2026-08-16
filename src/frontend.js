@@ -643,9 +643,9 @@ __BANNER__
 
 <!-- MAIN SCREEN (v0.10.0) — intentionally blank. The only door is the
      tiny blank square button bottom-right, which opens the private rooms
-     section. Version badge sits bottom-left. The public room still exists
-     at its code (CATCAFE8) for anyone who knows the way in. -->
-<div id="public-join" class="screen"></div>
+     section. Version badge sits bottom-left. No public room (v0.11.2):
+     every room lives behind a code and a sign-in. -->
+<div id="home" class="screen"></div>
 
 <!-- PRIVATE ROOMS -->
 <div id="private-landing" class="screen">
@@ -717,7 +717,7 @@ __BANNER__
 <div id="chat-screen">
   <div id="header">
     <div>
-      <h2 id="room-title">Public room</h2>
+      <h2 id="room-title">Room</h2>
       <span id="room-sub"></span>
     </div>
     <div class="head-actions">
@@ -725,7 +725,6 @@ __BANNER__
       <button id="tag-header-btn" style="display:none" title="Dev only: toggle the AGENT tag on your messages">AGENT tag: off</button>
       <button id="copy-header-btn" style="display:none">Copy link</button>
       <button id="close-room-btn" class="close" style="display:none">Close room</button>
-      <button id="leave-btn" class="leave" style="display:none">Leave</button>
       <div id="status" class="disconnected">Disconnected</div>
     </div>
   </div>
@@ -755,17 +754,17 @@ __BANNER__
 <button id="secret-btn" type="button" aria-label="Private rooms"></button>
 
 <script>
-const PUBLIC_ROOM = 'CATCAFE8'
 const CODE_RE = /^[A-HJ-NP-Z2-9]{8}$/
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 // Heartline versioning (SemVer): vMAJOR.MINOR.PATCH[-STAGE]
 // Below v1.0.0 until the project is officially ready. Bump MINOR for new
 // features, PATCH for fixes/improvements. Tell the developer on every bump.
-const VERSION = 'v0.11.1'
+const VERSION = 'v0.11.2'
 const ENV_TAG = '__APP_ENV_TAG__'
 const IS_DEV = ENV_TAG === '-dev'
 const VERSION_HISTORY = [
+  { v: 'v0.11.2', note: 'Public room deleted — no more CATCAFE8. Every room is private now: sign-in + code required, no walk-ins, nothing to stumble into' },
   { v: 'v0.11.1', note: 'Door code rotated — new number on both lanes (check the club chat for it). The old one is dead' },
   { v: 'v0.11.0', note: 'Photos in private rooms: the 🖼 button uploads an image straight into the chat (tap it for full size). Door code is 4386 on both lanes now — one number for the whole club' },
   { v: 'v0.10.1', note: 'Version panel: newest entries at the bottom, compact window (~4 rows) that scrolls' },
@@ -791,8 +790,7 @@ const VERSION_HISTORY = [
 
 let ws = null
 let username = ''
-let roomCode = ''          // '' = public room
-let isPrivate = false
+let roomCode = ''
 let reconnectTimer = null
 let leaving = false
 
@@ -1027,9 +1025,8 @@ function route() {
   const parts = location.pathname.split('/').filter(Boolean)
   const roomMatch = parts.length === 2 && parts[0] === 'room' && CODE_RE.test(parts[1])
 
-  if (roomMatch && parts[1] !== PUBLIC_ROOM) {
+  if (roomMatch) {
     roomCode = parts[1]
-    isPrivate = true
     document.getElementById('room-code-display').textContent = roomCode
     document.title = 'Room ' + roomCode
     show(session ? 'private-join' : 'signin')
@@ -1038,26 +1035,23 @@ function route() {
     checkRoomStatus(roomCode)
   } else if (location.pathname === '/private') {
     roomCode = ''
-    isPrivate = false
     document.title = 'Private rooms'
     show(session ? 'private-landing' : 'signin')
     updateAuthUI()
   } else if (location.pathname === '/auth/verify') {
     roomCode = ''
-    isPrivate = false
     document.title = 'Sign in'
     show('signin')
     updateAuthUI()
   } else {
     roomCode = ''
-    isPrivate = false
     document.title = 'Heartline'
-    show('public-join')
+    show('home')
   }
 }
 
 function show(id) {
-  ['public-join', 'private-landing', 'private-join', 'dormant', 'signin', 'chat-screen'].forEach(function (s) {
+  ['home', 'private-landing', 'private-join', 'dormant', 'signin', 'chat-screen'].forEach(function (s) {
     var el = document.getElementById(s)
     el.classList.toggle('on', s === id)
   })
@@ -1165,14 +1159,11 @@ function joinPrivate() {
 }
 
 function enterChat() {
-  document.getElementById('room-title').textContent =
-    isPrivate ? 'Room ' + roomCode : 'Public room'
-  document.getElementById('room-sub').textContent =
-    isPrivate ? 'Only people with the code can join' : 'Everyone lands here. No code needed.'
+  document.getElementById('room-title').textContent = 'Room ' + roomCode
+  document.getElementById('room-sub').textContent = 'Only people with the code can join.'
 
-  document.getElementById('copy-header-btn').style.display = isPrivate ? '' : 'none'
-  document.getElementById('close-room-btn').style.display = isPrivate ? '' : 'none'
-  document.getElementById('leave-btn').style.display = isPrivate ? 'none' : ''
+  document.getElementById('copy-header-btn').style.display = ''
+  document.getElementById('close-room-btn').style.display = ''
 
   show('chat-screen')
   connect()
@@ -1183,11 +1174,11 @@ function enterChat() {
 function connect() {
   setStatus('connecting', 'Connecting...')
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const room = isPrivate ? roomCode : PUBLIC_ROOM
+  const room = roomCode
   let wsUrl = protocol + '//' + location.host + '/chat?room=' + room + '&username=' + encodeURIComponent(username)
   if (session) {
-    // Signed-in identity travels into ANY room: private rooms need it, and
-    // in the public room it lets test accounts show their role tag + switcher.
+    // Signed-in identity travels into the room — the server reads the real
+    // name and role from the session record, never from the URL.
     wsUrl += '&token=' + encodeURIComponent(session.token) + '&role=' + encodeURIComponent(session.role || 'user')
   }
   // Dev-only test tag: pure display tag, sent only on the test build.
@@ -1371,17 +1362,8 @@ function deleteMessage(id) {
   ws.send(JSON.stringify({ type: 'delete', id: id }))
 }
 
-// public room: just leave — the room lives on
-function leaveRoom() {
-  leaving = true
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close()
-  ws = null
-  clearTimeout(reconnectTimer)
-  location.href = '/'
-}
-
-// private room: close it — just leaving (v0.10.0). The room stays, chats
-// stay saved, anyone with the code can walk back in.
+// every room is private: closing it is just leaving (v0.10.0). The room
+// stays, chats stay saved, anyone with the code can walk back in.
 function closeRoom() {
   leaving = true
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1406,7 +1388,6 @@ document.getElementById('join-code-btn').addEventListener('click', joinByCode)
 document.getElementById('copy-btn').addEventListener('click', copyLink)
 document.getElementById('copy-header-btn').addEventListener('click', copyHeaderLink)
 document.getElementById('close-room-btn').addEventListener('click', closeRoom)
-document.getElementById('leave-btn').addEventListener('click', leaveRoom)
 document.getElementById('send-btn').addEventListener('click', sendMessage)
 document.getElementById('img-btn').addEventListener('click', pickPhoto)
 document.getElementById('img-file').addEventListener('change', function () { uploadPhoto(this.files[0]) })
